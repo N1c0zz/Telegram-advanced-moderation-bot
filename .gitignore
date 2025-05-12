@@ -1,0 +1,73 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Virtual Environment
+bot-env/
+
+# Bot specific
+config.json
+credentials.json
+token.json
+*.log
+logs/
+
+# Google API credentials
+client_secret*.json
+*-credentials.json
+credentials*.json
+service_account*.json
+
+# Lock files
+*.lock
+nightmode_*.lock
+
+# Backup folders
+backups/
+
+# User data
+banned_users.json
+user_data.json
+
+# Other
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Temporary files
+*.tmp
+*.bak
+*.backup
+
+# OpenAI API Key or config files
+openai_api_key.txt
