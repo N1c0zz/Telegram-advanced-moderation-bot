@@ -1,0 +1,9 @@
+python-telegram-bot>=20.0
+python-dotenv
+unidecode
+openai>=1.0.0
+gspread
+google-auth
+schedule
+langdetect
+python-Levenshtein

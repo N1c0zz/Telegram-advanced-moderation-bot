@@ -1,0 +1,36 @@
+{
+  "banned_words": [
+    "panieriunipegasomercatorum",
+    "unitelematica",
+    "vendo panieri",
+    "offro panieri",
+    "panieri a pagamento"
+  ],
+  "exempt_users": [6232503826, 831728071, 906064950, "PoloLaDotta"],
+  "allowed_languages": ["italian"],
+  "google_sheet_id": "1Hkj9C8EEk409Q6gZRuCa5KXLBgmz090t8Z__NFKa8K0",
+  "google_credentials_file": "credentials.json",
+  "share_on_startup": false,
+  "share_email": "nicomorini25@gmail.com",
+  "check_headers": false,
+  "backup_interval_days": 7,
+  "backup_directory": "backups",
+  "first_messages_threshold": 3,
+  "admin_notification_user_id": null,
+  "night_mode": {
+    "start_hour": "23:00",
+    "end_hour": "07:00",
+    "start_message": "⛔ Il gruppo è attualmente in modalità notturna. L'invio di messaggi è temporaneamente disabilitato fino alle {end_hour}.",
+    "end_message": "🔔 La modalità notturna è terminata. L'invio di messaggi è ora nuovamente abilitato.",
+    "night_mode_groups": [
+      -1001413883199,
+      -1002203654435,
+      -1002205878265,
+      -1002067796519,
+      -1001575146602,
+      -1001355576572,
+      -1001772950682
+    ],
+    "enabled": true
+  }
+}
