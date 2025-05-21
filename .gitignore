@@ -1,8 +1,13 @@
-# Python
+```gitignore
+# Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class
+
+# C extensions
 *.so
+
+# Distribution / packaging
 .Python
 build/
 develop-eggs/
@@ -16,10 +21,36 @@ parts/
 sdist/
 var/
 wheels/
+pip-wheel-metadata/
+share/python-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
 MANIFEST
+
+# PyInstaller
+#  Usually these files are written by a PyInstaller script; this is simply a
+#  coverall PyInstaller may feel very pyinstaller-ful
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
 
 # Environments
 .env
@@ -30,44 +61,25 @@ ENV/
 env.bak/
 venv.bak/
 
-# Virtual Environment
-bot-env/
-
-# Bot specific
-config.json
-credentials.json
-token.json
-*.log
-logs/
-
-# Google API credentials
-client_secret*.json
-*-credentials.json
-credentials*.json
-service_account*.json
-
-# Lock files
-*.lock
-nightmode_*.lock
-
-# Backup folders
-backups/
-
-# User data
-banned_users.json
-user_data.json
-
-# Other
-.DS_Store
+# IDE specific files
 .idea/
 .vscode/
-*.swp
-*.swo
+*.sublime-project
+*.sublime-workspace
 
-# Temporary files
-*.tmp
-*.bak
-*.backup
+# OS specific files
+.DS_Store
+Thumbs.db
 
-# OpenAI API Key or config files
-openai_api_key.txt
+# Config files with secrets
+config/credentials.json
+config/config.json
+
+# Backup and log directories
+backups/
+logs/
+*.lock # Lock files per la night mode
+
+# Jupyter Notebook
+.ipynb_checkpoints
+```

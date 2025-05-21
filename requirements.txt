@@ -1,9 +1,11 @@
-python-telegram-bot>=20.0
+```txt
 python-dotenv
 unidecode
-openai>=1.0.0
+openai
+python-telegram-bot
 gspread
-google-auth
+google-oauth2-service-account
 schedule
 langdetect
-python-Levenshtein
+Levenshtein
+```
