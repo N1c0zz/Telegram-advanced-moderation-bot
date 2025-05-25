@@ -518,13 +518,10 @@ class TelegramModerationBot:
             self.bot_stats['messages_deleted_by_direct_filter'] += 1
             self.moderation_logic.stats['direct_filter_matches'] +=1 # Statistica della classe moderation_logic
             
-            # Ban se è un messaggio editato sospetto o un primo messaggio chiaramente spam
-            first_msg_threshold = self.config_manager.get('first_messages_threshold', 3)
-            is_first_few = self.message_cache.is_first_few_messages(chat_id, user_id, first_msg_threshold)
-            if is_edited or (is_first_few and not is_edited) : # Ban più aggressivo per edit o primi messaggi
-                self.logger.warning(f"Ban per {username} ({user_id}): {'messaggio editato' if is_edited else 'primo messaggio'} con parole bannate.")
-                self.sheets_manager.ban_user(user_id, username, f"{'Edit ' if is_edited else 'Primo msg '}con contenuto bannato")
-                motivo_finale_rifiuto += " - Ban applicato"
+            if is_edited: # Qualsiasi edit inappropriato = ban automatico
+                self.logger.warning(f"Ban per {username} ({user_id}): messaggio editato inappropriato - possibile elusione moderazione.")
+                self.sheets_manager.ban_user(user_id, username, "Messaggio editato inappropriato - elusione moderazione")
+                motivo_finale_rifiuto += " - Ban applicato (edit)"
 
 
         # 6. Analisi AI (OpenAI o fallback) se non già bloccato dal filtro diretto
@@ -538,9 +535,7 @@ class TelegramModerationBot:
                 self.bot_stats['messages_deleted_by_ai_filter'] += 1
                 
                 # Ban se è un messaggio editato sospetto o un primo messaggio chiaramente spam via AI
-                first_msg_threshold = self.config_manager.get('first_messages_threshold', 3)
-                is_first_few = self.message_cache.is_first_few_messages(chat_id, user_id, first_msg_threshold)
-                if is_edited or (is_first_few and not is_edited):
+                if is_edited:
                     self.logger.warning(f"Ban per {username} ({user_id}): {'messaggio editato' if is_edited else 'primo messaggio'} inappropriato (AI).")
                     self.sheets_manager.ban_user(user_id, username, f"{'Edit ' if is_edited else 'Primo msg '} inappropriato (AI)")
                     motivo_finale_rifiuto += " - Ban applicato (AI)"
@@ -569,13 +564,7 @@ class TelegramModerationBot:
                 self.bot_stats['messages_deleted_total'] += 1
                 if is_edited: self.bot_stats['edited_messages_deleted'] += 1
                 
-                notif_text = "❌ Messaggio eliminato."
-                if "parole/pattern bannati" in motivo_finale_rifiuto:
-                    notif_text = "❌ Messaggio eliminato: contiene termini non permessi."
-                elif "inappropriato (AI)" in motivo_finale_rifiuto:
-                    notif_text = "❌ Messaggio eliminato: contenuto non conforme alle regole."
-                elif "lingua non consentita" in motivo_finale_rifiuto:
-                    notif_text = "❌ Messaggio eliminato: si prega di usare una lingua consentita."
+                notif_text = "❌ Messaggio eliminato. Attenersi alle linee guida del gruppo."
                 if "Ban applicato" in motivo_finale_rifiuto:
                     notif_text += " L'utente è stato sanzionato."
 
