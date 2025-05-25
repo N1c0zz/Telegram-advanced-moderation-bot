@@ -1,10 +1,10 @@
-```python
 import csv
 import logging
 import os
 import pathlib
 import schedule # type: ignore
 import time
+import gspread.utils
 from datetime import datetime
 from typing import Optional
 
@@ -135,5 +135,3 @@ class SheetBackupManager:
             self.logger.error(f"Formato ora '{at_time}' non valido per la programmazione del backup. Usare HH:MM.")
         except Exception as e:
             self.logger.error(f"Errore durante la programmazione dei backup: {e}", exc_info=True)
-
-```

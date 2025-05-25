@@ -1,4 +1,3 @@
-```python
 import os
 import sys
 import signal
@@ -68,4 +67,3 @@ if __name__ == "__main__":
     signal.signal(signal.SIGTERM, signal_handler) # Segnale di terminazione (es. da systemd o Docker)
     
     main()
-```

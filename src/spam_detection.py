@@ -1,4 +1,3 @@
-```python
 import logging
 from datetime import datetime, timedelta
 from typing import List, Tuple, Dict, Optional
@@ -129,5 +128,3 @@ class CrossGroupSpamDetector:
                 del self.user_messages[user_id]
         if self.logger:
             self.logger.debug("Dati vecchi del CrossGroupSpamDetector puliti.")
-
-```

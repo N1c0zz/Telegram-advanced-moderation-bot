@@ -1,4 +1,3 @@
-```python
 import logging
 import os
 from datetime import datetime
@@ -254,4 +253,3 @@ class GoogleSheetsManager:
         except Exception as e:
             self.logger.error(f"Errore durante la verifica dello stato ban per l'utente {user_id}: {e}", exc_info=True)
             return False # In caso di errore, meglio assumere che non sia bannato
-```

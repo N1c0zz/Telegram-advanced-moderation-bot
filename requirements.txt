@@ -4,7 +4,9 @@ unidecode
 openai
 python-telegram-bot
 gspread
-google-oauth2-service-account
+google-auth
+google-auth-oauthlib
+google-auth-httplib2
 schedule
 langdetect
 Levenshtein

@@ -1,4 +1,3 @@
-```python
 import hashlib
 from datetime import datetime, timedelta
 from typing import Dict, List, Tuple, Optional, Any
@@ -106,4 +105,3 @@ class MessageAnalysisCache:
 
         self.cache[message_hash] = analysis_result
         self.access_count[message_hash] = 0 # Reset/init access count
-```

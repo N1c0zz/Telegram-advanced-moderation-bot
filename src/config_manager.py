@@ -1,4 +1,3 @@
-```python
 import json
 import logging
 import os
@@ -93,4 +92,3 @@ class ConfigManager:
             else:
                 return default
         return _config
-```

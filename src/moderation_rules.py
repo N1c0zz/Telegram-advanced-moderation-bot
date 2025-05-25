@@ -1,4 +1,3 @@
-```python
 import logging
 import os
 import re
@@ -467,4 +466,3 @@ class AdvancedModerationBotLogic: # Rinominato per chiarezza rispetto a Telegram
                                      self.contains_suspicious_contact_invitation(message_text)
             is_disallowed_lang_local = self.is_language_disallowed(message_text)
             return is_inappropriate_local, False, is_disallowed_lang_local
-```

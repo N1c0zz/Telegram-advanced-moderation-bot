@@ -1,4 +1,3 @@
-```python
 import asyncio
 import os
 import logging
@@ -919,5 +918,3 @@ class TelegramModerationBot:
 
 
         self.logger.info("Bot arrestato.")
-
-```
