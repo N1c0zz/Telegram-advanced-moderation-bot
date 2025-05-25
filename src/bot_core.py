@@ -886,7 +886,7 @@ class TelegramModerationBot:
         
         # Verifica Night Mode all'avvio (dopo un breve delay per permettere al bot di connettersi)
         # Lo facciamo in un thread separato per non bloccare l'avvio del polling
-        startup_nm_check_thread = threading.Thread(target=lambda: (time.sleep(10), self._check_night_mode_on_startup()), daemon=True)
+        startup_nm_check_thread = threading.Thread(target=lambda: (time.sleep(30), self._check_night_mode_on_startup()), daemon=True)
         startup_nm_check_thread.start()
 
         self.logger.info("Bot configurato e pronto. Avvio polling...")
