@@ -316,15 +316,6 @@ class TelegramModerationBot:
                     del self.night_mode_messages_sent[chat_id]
                 except Exception as e:
                     self.logger.warning(f"Impossibile rimuovere messaggio Night Mode in {group_name_for_log} ({chat_id}): {e}")
-            
-            # Invia messaggio di fine night mode
-            end_msg = nm_config.get('end_message', "🔔 Night Mode terminata. Ora puoi inviare messaggi.")
-            try:
-                await bot.send_message(chat_id, end_msg)
-            except Forbidden:
-                 self.logger.warning(f"Impossibile inviare messaggio fine Night Mode in {group_name_for_log} ({chat_id}). Permessi insufficienti?")
-            except Exception as e:
-                self.logger.error(f"Errore invio messaggio fine Night Mode in {group_name_for_log} ({chat_id}): {e}")
 
 
     async def _task_manage_night_mode_for_all_groups(self, bot: Bot, activate: bool):
