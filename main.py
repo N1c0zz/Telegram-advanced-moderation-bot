@@ -5,7 +5,7 @@ import logging # Importa logging per poter configurare il logger di base prima c
 from dotenv import load_dotenv
 
 # Importa la classe principale del bot
-from bot_core import TelegramModerationBot
+from src.bot_core import TelegramModerationBot
 
 # Configurazione base del logging prima che il bot inizializzi il suo logger
 # Questo cattura i log iniziali se qualcosa va storto prima della configurazione del logger del bot
