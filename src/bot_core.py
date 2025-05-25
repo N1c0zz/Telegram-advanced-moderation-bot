@@ -136,7 +136,7 @@ class TelegramModerationBot:
         o un nuovo loop se necessario. `coroutine_func` deve essere una funzione che
         prende un'istanza di `telegram.Bot` come primo argomento e restituisce una coroutine.
         """
-        if self.application and self.application.loop and self.application.loop.is_running():
+        if self.application and hasattr(self.application, '_loop') and self.application._loop and self.application._loop.is_running():
             bot_instance = self.application.bot
             actual_coroutine = coroutine_func(bot_instance) # Crea la coroutine passando il bot dell'app
             future = asyncio.run_coroutine_threadsafe(actual_coroutine, self.application.loop)
