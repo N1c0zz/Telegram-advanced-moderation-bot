@@ -1,4 +1,3 @@
-```txt
 python-dotenv
 unidecode
 openai
@@ -10,4 +9,3 @@ google-auth-httplib2
 schedule
 langdetect
 Levenshtein
-```
