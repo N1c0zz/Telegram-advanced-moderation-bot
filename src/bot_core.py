@@ -20,6 +20,7 @@ from .backup_handler import SheetBackupManager
 from .moderation_rules import AdvancedModerationBotLogic
 from .cache_utils import MessageCache
 from .spam_detection import CrossGroupSpamDetector
+from .user_counters import UserMessageCounters
 
 
 class TelegramModerationBot:
@@ -69,6 +70,8 @@ class TelegramModerationBot:
             max_hours=self.config_manager.get_nested('message_cache', 'max_hours', default=3)
         )
         schedule.every(30).minutes.do(self.message_cache.cleanup_all_old_data)
+
+        self.user_counters = UserMessageCounters()
 
         # Attributi per Night Mode e stato
         self.night_mode_transition_active: bool = False
@@ -422,6 +425,12 @@ class TelegramModerationBot:
         # Aggiungi messaggio alla cache per "first N messages" e spam cross-gruppo
         if not is_edited: # Solo per messaggi nuovi
             self.message_cache.add_message(chat_id, user_id, message_id, message_text)
+            
+            # NUOVO: Incrementa contatore storico permanente
+            total_user_messages = self.user_counters.increment_and_get_count(user_id, chat_id)
+        else:
+            # Per messaggi editati, ottieni il contatore senza incrementare  
+            total_user_messages = self.user_counters.get_count(user_id, chat_id)
 
         # 1. Utenti esenti (admin)
         exempt_users_list = self.config_manager.get('exempt_users', [])
@@ -505,6 +514,14 @@ class TelegramModerationBot:
                     self.logger.info("Cross-posting rilevato, ma contenuto sembra legittimo. Nessun ban/delete automatico.")
                     # Il messaggio procederà con la normale analisi
 
+        # --- Controllo messaggi brevi/emoji (skip analisi AI) ---
+        if self._is_short_or_emoji_message(message_text):
+            self.logger.info(f"Messaggio breve/emoji da {username}: skip analisi AI, salvato come appropriato.")
+            self.sheets_manager.save_message(
+                message_text, user_id, username, chat_id, group_name,
+                approvato=True, domanda=False, motivo_rifiuto=""
+            )
+            return
 
         # --- Inizio analisi contenuto ---
         action_taken = False
@@ -522,7 +539,11 @@ class TelegramModerationBot:
                 self.logger.warning(f"Ban per {username} ({user_id}): messaggio editato inappropriato - possibile elusione moderazione.")
                 self.sheets_manager.ban_user(user_id, username, "Messaggio editato inappropriato - elusione moderazione")
                 motivo_finale_rifiuto += " - Ban applicato (edit)"
-
+            elif total_user_messages <= self.config_manager.get('first_messages_threshold', 3):
+                # Ban anche per primi messaggi inappropriati
+                self.logger.warning(f"Ban per {username} ({user_id}): primo messaggio ({total_user_messages}/{self.config_manager.get('first_messages_threshold', 3)}) inappropriato.")
+                self.sheets_manager.ban_user(user_id, username, f"Primo messaggio inappropriato (msg #{total_user_messages})")
+                motivo_finale_rifiuto += f" - Ban applicato (primo msg #{total_user_messages})"
 
         # 6. Analisi AI (OpenAI o fallback) se non già bloccato dal filtro diretto
         is_inappropriate_ai, is_question_ai, is_disallowed_lang_ai = (False, False, False)
@@ -534,11 +555,14 @@ class TelegramModerationBot:
                 action_taken = True
                 self.bot_stats['messages_deleted_by_ai_filter'] += 1
                 
-                # Ban se è un messaggio editato sospetto o un primo messaggio chiaramente spam via AI
                 if is_edited:
-                    self.logger.warning(f"Ban per {username} ({user_id}): {'messaggio editato' if is_edited else 'primo messaggio'} inappropriato (AI).")
-                    self.sheets_manager.ban_user(user_id, username, f"{'Edit ' if is_edited else 'Primo msg '} inappropriato (AI)")
-                    motivo_finale_rifiuto += " - Ban applicato (AI)"
+                    self.logger.warning(f"Ban per {username} ({user_id}): messaggio editato inappropriato (AI).")
+                    self.sheets_manager.ban_user(user_id, username, "Edit inappropriato (AI)")
+                    motivo_finale_rifiuto += " - Ban applicato (AI edit)"
+                elif total_user_messages <= self.config_manager.get('first_messages_threshold', 3):
+                    self.logger.warning(f"Ban per {username} ({user_id}): primo messaggio ({total_user_messages}/{self.config_manager.get('first_messages_threshold', 3)}) inappropriato (AI).")
+                    self.sheets_manager.ban_user(user_id, username, f"Primo messaggio inappropriato AI (msg #{total_user_messages})")
+                    motivo_finale_rifiuto += f" - Ban applicato (AI primo msg #{total_user_messages})"
 
 
             elif is_disallowed_lang_ai:
@@ -769,6 +793,7 @@ class TelegramModerationBot:
             return
 
         mod_stats = self.moderation_logic.get_stats()
+        counter_stats = self.user_counters.get_stats()
         
         stats_msg = "📊 **Statistiche Moderazione Bot** 📊\n\n"
         stats_msg += f"🔹 **Messaggi Processati:** {self.bot_stats['total_messages_processed']}\n"
@@ -785,6 +810,10 @@ class TelegramModerationBot:
         stats_msg += f"🔸 Dimensione Cache Analisi: {mod_stats['cache_size']}\n"
         stats_msg += f"🔸 Violazioni rilevate da AI: {mod_stats['ai_filter_violations']}\n" # Dalla classe moderation_logic
         stats_msg += f"🔸 Match filtro diretto (logica): {mod_stats['direct_filter_matches']}\n\n" # Dalla classe moderation_logic
+        stats_msg += f"👥 **Contatori Utente:**\n"
+        stats_msg += f"🔸 Utenti tracciati: {counter_stats['total_tracked_users']}\n"
+        stats_msg += f"🔸 Nuovi utenti (≤3 msg): {counter_stats['first_time_users']}\n"
+        stats_msg += f"🔸 Utenti veterani (>3 msg): {counter_stats['veteran_users']}\n\n"
 
         # Potremmo aggiungere info sui lock attivi, stato night mode, etc.
         active_locks = [k for k, v in self._operation_locks.items() if v] # Non usato più os.path.exists
@@ -827,6 +856,41 @@ class TelegramModerationBot:
             )
         finally:
             self._release_lock("startup_night_mode_check")
+
+    def _is_short_or_emoji_message(self, text: str) -> bool:
+        """
+        Verifica se il messaggio è troppo breve o contiene solo emoji/simboli
+        per essere analizzato dall'AI.
+        """
+        import re
+        
+        # Rimuovi spazi
+        clean_text = text.strip()
+        
+        # Messaggi molto brevi (meno di 10 caratteri)
+        if len(clean_text) < 10:
+            return True
+        
+        # Solo emoji, simboli, numeri, punteggiatura
+        # Rimuovi tutto tranne lettere
+        letters_only = re.sub(r'[^a-zA-ZÀ-ÿ]', '', clean_text)
+        
+        # Se rimangono meno di 5 lettere, probabilmente è solo emoji/simboli
+        if len(letters_only) < 5:
+            return True
+            
+        # Pattern comuni innocui
+        innocuous_patterns = [
+            r'^(si|no|ok|ciao|grazie|prego)$',  # Parole singole comuni
+            r'^[0-9\s\-+/()]+$',               # Solo numeri e simboli matematici
+            r'^[.,!?;:\s]+$',                  # Solo punteggiatura
+        ]
+        
+        for pattern in innocuous_patterns:
+            if re.match(pattern, clean_text.lower()):
+                return True
+        
+        return False
 
 
     def start(self):
@@ -895,6 +959,7 @@ class TelegramModerationBot:
         # self._release_lock("night_mode_activation") # Esempio
         # self._release_lock("night_mode_deactivation")
         # self._release_lock("startup_night_mode_check")
-
+        self.user_counters.force_save()
+        self.logger.info("Contatori utente salvati.")
 
         self.logger.info("Bot arrestato.")
