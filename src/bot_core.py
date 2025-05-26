@@ -508,7 +508,7 @@ class TelegramModerationBot:
                     
                     # Pulizia messaggi precedenti nei gruppi coinvolti
                     await self._delete_recent_user_messages_from_cache(context, user_id, username, groups_involved)
-                    await self._send_temporary_notification(context, chat_id, "❌ Messaggio eliminato per spam cross-gruppo.")
+                    await self._send_temporary_notification(context, chat_id, "❌ Messaggio eliminato per spam.")
                     return
                 else:
                     self.logger.info("Cross-posting rilevato, ma contenuto sembra legittimo. Nessun ban/delete automatico.")
@@ -588,7 +588,7 @@ class TelegramModerationBot:
                 self.bot_stats['messages_deleted_total'] += 1
                 if is_edited: self.bot_stats['edited_messages_deleted'] += 1
                 
-                notif_text = "❌ Messaggio eliminato. Attenersi alle linee guida del gruppo."
+                notif_text = "❌ Messaggio eliminato. Attenersi alle linee guida del gruppo.\nScrivimi in chat "/rules" per conoscere le regole del gruppo!\n"
                 if "Ban applicato" in motivo_finale_rifiuto:
                     notif_text += " L'utente è stato sanzionato."
 
@@ -826,6 +826,43 @@ class TelegramModerationBot:
 
         await update.message.reply_text(stats_msg, parse_mode='Markdown')
 
+    async def show_rules_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """
+        Mostra le linee guida del gruppo (comando disponibile SOLO in chat privata).
+        """
+        if not self.config_manager.get('rules_command_enabled', True):
+            return  # Comando disabilitato nella configurazione
+        
+        # Verifica che sia una chat privata
+        if update.effective_chat.type != 'private':
+            # Se scritto in un gruppo, NON rispondere affatto (silenzioso)
+            self.logger.info(f"Comando /rules ignorato in chat di gruppo {update.effective_chat.id} da utente {update.effective_user.id}")
+            return
+        
+        # Ottieni il messaggio dalle configurazioni
+        rules_text = self.config_manager.get('rules_message', 
+            "📋 **LINEE GUIDA DEL GRUPPO**\n\n")
+        
+        try:
+            # Invia il messaggio in chat privata
+            await context.bot.send_message(
+                update.effective_chat.id, 
+                rules_text, 
+                parse_mode='Markdown'
+            )
+            
+            self.logger.info(f"Regole inviate in privato a utente {update.effective_user.id} ({update.effective_user.username})")
+            
+        except Exception as e:
+            self.logger.error(f"Errore invio regole in privato a utente {update.effective_user.id}: {e}")
+            # Invia messaggio di errore generico
+            try:
+                await context.bot.send_message(
+                    update.effective_chat.id,
+                    "❌ Errore nell'invio delle regole. Riprova più tardi."
+                )
+            except Exception:
+                pass  # Se non riesce nemmeno questo, ignora
 
     # --- Bot Lifecycle & Scheduler ---
     def _run_scheduler_thread(self):
@@ -919,6 +956,7 @@ class TelegramModerationBot:
         self.application.add_handler(CommandHandler("nightoff", self.night_mode_off_command))
         self.application.add_handler(CommandHandler("nightonall", self.night_mode_all_on_command))
         self.application.add_handler(CommandHandler("nightoffall", self.night_mode_all_off_command))
+        self.application.add_handler(CommandHandler("rules", self.show_rules_command))
 
         # Pianifica Night Mode
         self._schedule_night_mode_jobs()
