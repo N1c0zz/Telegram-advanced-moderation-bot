@@ -102,51 +102,41 @@ class AdvancedModerationBotLogic: # Rinominato per chiarezza rispetto a Telegram
         text = re.sub(r'\s+', ' ', text).strip() # Normalizza spazi
         return text
 
-    @functools.lru_cache(maxsize=500) # Cache per questa funzione specifica se chiamata spesso con lo stesso input
+    @functools.lru_cache(maxsize=500)
     def contains_banned_word(self, text: str) -> bool:
         """
-        Verifica se il testo normalizzato contiene una delle parole/frasi bannate.
-        Questo è un filtro ad alta confidenza per spam/vendite esplicite.
+        Filtro meccanico ULTRA-MINIMALE - blocca solo spam ovvio.
+        Tutto il resto passa a OpenAI.
         """
         normalized_text = self.normalize_text(text)
-        if not normalized_text: # Testo vuoto dopo normalizzazione
+        if not normalized_text:
             return False
 
-        # Pattern per vendita esplicita o termini di pagamento
-        # NOTA: La lista `banned_words` da config.json è già stata normalizzata
-        # e viene usata per un controllo letterale. Qui aggiungiamo pattern regex.
-        high_confidence_patterns = [
-            r"vendo\s.*\s[0-9]+\s*(?:euro|€)",
-            r"offro\s.*\s[0-9]+\s*(?:euro|€)",
-            r"a\s+soli\s+[0-9]+\s*(?:euro|€)",
-            r"prezzo\s+(?:trattabile|privato|contattami|scrivimi)",
-            r"pagamento\s+(?:anticipato|bonifico|paypal|postepay)",
-            # Crypto scam keywords
-            r"investimento\s+(?:sicuro|garantito|crypto|bitcoin)",
-            r"guadagn\w+\s+(?:facile|online|subito|trading)",
-            r"mining\s+pool",
-            r"crypto\s+bot",
+        # SOLO spam ovvio e inequivocabile
+        minimal_patterns = [
+            # Vendita esplicita con prezzo E contatto privato (tutti insieme)
+            r"(?:vendo|offro).*[0-9]+\s*(?:euro|€).*(?:scriv|contatt|privat|whatsapp|telegram)",
+            
+            # Account spam noti
+            r"@panieriunipegasomercatorum",
+            r"@unitelematica",
+            
+            # Scam ovvi
+            r"guadagni?\s+(?:facili|garantiti|sicuri)",
+            r"(?:soldi|euro)\s+facili",
+            r"mining.*pool.*(?:join|entra)",
+            
+            # NUOVO: Alfabeti non latini (cirillico, arabo, cinese, etc.)
+            r"[а-я].*[0-9]+.*(?:дол|руб|€|\$)",  # Cirillico con cifre e valute
+            r"[а-яё]{10,}",  # Testo lungo in cirillico (probabilmente spam)
+            r"[а-яё\u0400-\u04FF\u0500-\u052F]{5,}.*[0-9]",  # Cirillico con numeri
+            r"[\u4e00-\u9fff]{5,}",  # Cinese
+            r"[\u0600-\u06ff]{5,}",  # Arabo
         ]
 
-        for pattern in high_confidence_patterns:
+        for pattern in minimal_patterns:
             if re.search(pattern, normalized_text, re.IGNORECASE):
-                self.logger.debug(f"Rilevato pattern bannato ad alta confidenza: '{pattern}' in '{normalized_text}'")
                 return True
-        
-        # Controllo parole bannate da config.json (già normalizzate all'init)
-        # Per un match più robusto, potremmo normalizzare anche le banned_words all'init.
-        # Assumiamo che le parole in config siano già in formato "normalizzabile"
-        for banned_phrase in self.banned_words:
-            # Normalizza anche la frase bannata per un confronto corretto
-            normalized_banned_phrase = self.normalize_text(banned_phrase) # Assicura che sia normalizzata come il testo
-            if normalized_banned_phrase in normalized_text: # Cerca la frase esatta normalizzata
-                 self.logger.debug(f"Rilevata frase bannata da config: '{normalized_banned_phrase}' in '{normalized_text}'")
-                 return True
-            # Considera anche una ricerca con \bword\b se le frasi sono singole parole
-            if f" {normalized_banned_phrase} " in f" {normalized_text} ": # Match di parola intera
-                 self.logger.debug(f"Rilevata parola bannata (word boundary) da config: '{normalized_banned_phrase}' in '{normalized_text}'")
-                 return True
-
 
         return False
 
