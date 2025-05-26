@@ -588,7 +588,7 @@ class TelegramModerationBot:
                 self.bot_stats['messages_deleted_total'] += 1
                 if is_edited: self.bot_stats['edited_messages_deleted'] += 1
                 
-                notif_text = "❌ Messaggio eliminato. Attenersi alle linee guida del gruppo.\nScrivimi in chat "/rules" per conoscere le regole del gruppo!\n"
+                notif_text = "❌ Messaggio eliminato. Attenersi alle linee guida del gruppo.\nScrivimi in chat il comando /rules per conoscere le regole del gruppo!\n"
                 if "Ban applicato" in motivo_finale_rifiuto:
                     notif_text += " L'utente è stato sanzionato."
 
