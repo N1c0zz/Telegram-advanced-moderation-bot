@@ -71,7 +71,7 @@ class TelegramModerationBot:
         )
         schedule.every(30).minutes.do(self.message_cache.cleanup_all_old_data)
 
-        self.user_counters = UserMessageCounters()
+        self.user_counters = UserMessageCounters(integrity_check=True)
 
         # Attributi per Night Mode e stato
         self.night_mode_transition_active: bool = False
