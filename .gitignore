@@ -1,4 +1,3 @@
-```gitignore
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -80,6 +79,9 @@ backups/
 logs/
 *.lock # Lock files per la night mode
 
+# Bot data directories (CSV, cache, contatori utente)
+data/
+*.csv
+
 # Jupyter Notebook
 .ipynb_checkpoints
-```
