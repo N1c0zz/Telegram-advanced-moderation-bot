@@ -21,6 +21,7 @@ from .moderation_rules import AdvancedModerationBotLogic
 from .cache_utils import MessageCache
 from .spam_detection import CrossGroupSpamDetector
 from .user_counters import UserMessageCounters
+from .csv_interface import CSVDataManager
 
 
 class TelegramModerationBot:
@@ -46,7 +47,12 @@ class TelegramModerationBot:
         if not os.getenv("OPENAI_API_KEY"):
             self.logger.warning("Chiave API OpenAI (OPENAI_API_KEY) non trovata. L'analisi AI sarà limitata.")
 
+        # Google Sheets (esistente)
         self.sheets_manager = GoogleSheetsManager(self.logger, self.config_manager)
+
+        # CSV Manager (nuovo) - importa in cima al file
+        from .csv_interface import CSVDataManager
+        self.csv_manager = CSVDataManager(self.logger, self.config_manager)
         
         self.moderation_logic = AdvancedModerationBotLogic(self.config_manager, self.logger) # Passa solo config e logger
 
@@ -444,7 +450,10 @@ class TelegramModerationBot:
         exempt_users_list = self.config_manager.get('exempt_users', [])
         if user_id in exempt_users_list or username in exempt_users_list:
             self.logger.info(f"Messaggio {'modificato ' if is_edited else ''}da utente esente {username} ({user_id}) in {group_name} ({chat_id}).")
+            # Salva su Google Sheets (esistente)
             self.sheets_manager.save_admin_message(message_text, user_id, username, chat_id, group_name)
+            # Salva anche su CSV (nuovo)
+            self.csv_manager.save_admin_message(message_text, user_id, username, chat_id, group_name)
             return
 
         # 2. Controllo Night Mode (solo per messaggi nuovi)
@@ -466,9 +475,17 @@ class TelegramModerationBot:
                 return
 
         # 3. Utenti già bannati (controllo su Google Sheets)
-        if self.sheets_manager.is_user_banned(user_id):
+        sheets_banned = self.sheets_manager.is_user_banned(user_id)
+        csv_banned = self.csv_manager.is_user_banned(user_id)
+        if sheets_banned or csv_banned:
             self.logger.info(f"Messaggio {'modificato ' if is_edited else ''}da utente già bannato {username} ({user_id}). Cancellazione.")
+            # Salva su Google Sheets (esistente)
             self.sheets_manager.save_message(
+                message_text, user_id, username, chat_id, group_name,
+                approvato=False, domanda=False, motivo_rifiuto=f"utente bannato (msg {'editato' if is_edited else 'nuovo'})"
+            )
+            # Salva anche su CSV (nuovo)
+            self.csv_manager.save_message(
                 message_text, user_id, username, chat_id, group_name,
                 approvato=False, domanda=False, motivo_rifiuto=f"utente bannato (msg {'editato' if is_edited else 'nuovo'})"
             )
@@ -494,8 +511,16 @@ class TelegramModerationBot:
 
                 if is_inappropriate_content or is_direct_banned:
                     self.logger.warning(f"Contenuto SPAM CROSS-GRUPPO confermato come inappropriato. Ban e pulizia.")
+                    # Ban e salvataggio su Google Sheets (esistente)
                     self.sheets_manager.ban_user(user_id, username, f"Spam cross-gruppo (similarità {similarity:.2f})")
                     self.sheets_manager.save_message(
+                        message_text, user_id, username, chat_id, group_name,
+                        approvato=False, domanda=False,
+                        motivo_rifiuto=f"spam cross-gruppo inappropriato (similarità {similarity:.2f})"
+                    )
+                    # Ban e salvataggio anche su CSV (nuovo)
+                    self.csv_manager.ban_user(user_id, username, f"Spam cross-gruppo (similarità {similarity:.2f})")
+                    self.csv_manager.save_message(
                         message_text, user_id, username, chat_id, group_name,
                         approvato=False, domanda=False,
                         motivo_rifiuto=f"spam cross-gruppo inappropriato (similarità {similarity:.2f})"
@@ -529,16 +554,28 @@ class TelegramModerationBot:
             
             if is_edited: # Qualsiasi edit inappropriato = ban automatico
                 self.logger.warning(f"Ban per {username} ({user_id}): messaggio editato inappropriato - possibile elusione moderazione.")
+                # Ban su Google Sheets (esistente) 
                 self.sheets_manager.ban_user(user_id, username, "Messaggio editato inappropriato - elusione moderazione")
+                # Ban anche su CSV (nuovo)
+                self.csv_manager.ban_user(user_id, username, "Messaggio editato inappropriato - elusione moderazione")
                 motivo_finale_rifiuto += " - Ban applicato (edit)"
             elif total_user_messages <= self.config_manager.get('first_messages_threshold', 3):
                 # Ban anche per primi messaggi inappropriati
                 self.logger.warning(f"Ban per {username} ({user_id}): primo messaggio ({total_user_messages}/{self.config_manager.get('first_messages_threshold', 3)}) inappropriato.")
+                # Ban su Google Sheets (esistente)
                 self.sheets_manager.ban_user(user_id, username, f"Primo messaggio inappropriato (msg #{total_user_messages})")
+                # Ban anche su CSV (nuovo)
+                self.csv_manager.ban_user(user_id, username, f"Primo messaggio inappropriato (msg #{total_user_messages})")
                 motivo_finale_rifiuto += f" - Ban applicato (primo msg #{total_user_messages})"
 
             # Cancella e salva
+            # Salva su Google Sheets (esistente)
             self.sheets_manager.save_message(
+                message_text, user_id, username, chat_id, group_name,
+                approvato=False, domanda=False, motivo_rifiuto=motivo_finale_rifiuto
+            )
+            # Salva anche su CSV (nuovo)
+            self.csv_manager.save_message(
                 message_text, user_id, username, chat_id, group_name,
                 approvato=False, domanda=False, motivo_rifiuto=motivo_finale_rifiuto
             )
@@ -567,10 +604,19 @@ class TelegramModerationBot:
             
             if is_edited: # Ban per edit in lingua straniera
                 self.logger.warning(f"Ban per {username} ({user_id}): messaggio editato in lingua non consentita.")
+                # Ban su Google Sheets (esistente)
                 self.sheets_manager.ban_user(user_id, username, "Edit in lingua non consentita")
+                # Ban anche su CSV (nuovo)
+                self.csv_manager.ban_user(user_id, username, "Edit in lingua non consentita")
                 motivo_finale_rifiuto += " - Ban applicato (lingua edit)"
 
+            # Salva su Google Sheets (esistente)
             self.sheets_manager.save_message(
+                message_text, user_id, username, chat_id, group_name,
+                approvato=False, domanda=False, motivo_rifiuto=motivo_finale_rifiuto
+            )
+            # Salva anche su CSV (nuovo)
+            self.csv_manager.save_message(
                 message_text, user_id, username, chat_id, group_name,
                 approvato=False, domanda=False, motivo_rifiuto=motivo_finale_rifiuto
             )
@@ -591,7 +637,13 @@ class TelegramModerationBot:
         
         if is_short_message:
             self.logger.info(f"Messaggio breve/emoji da {username}: controlli sicurezza OK, skip analisi AI costosa.")
+            # Salva su Google Sheets (esistente)
             self.sheets_manager.save_message(
+                message_text, user_id, username, chat_id, group_name,
+                approvato=True, domanda=False, motivo_rifiuto=""
+            )
+            # Salva anche su CSV (nuovo)
+            self.csv_manager.save_message(
                 message_text, user_id, username, chat_id, group_name,
                 approvato=True, domanda=False, motivo_rifiuto=""
             )
@@ -611,11 +663,17 @@ class TelegramModerationBot:
             
             if is_edited:
                 self.logger.warning(f"Ban per {username} ({user_id}): messaggio editato inappropriato (AI).")
+                # Ban su Google Sheets (esistente)
                 self.sheets_manager.ban_user(user_id, username, "Edit inappropriato (AI)")
+                # Ban anche su CSV (nuovo)
+                self.csv_manager.ban_user(user_id, username, "Edit inappropriato (AI)")
                 motivo_finale_rifiuto += " - Ban applicato (AI edit)"
             elif total_user_messages <= self.config_manager.get('first_messages_threshold', 3):
                 self.logger.warning(f"Ban per {username} ({user_id}): primo messaggio ({total_user_messages}/{self.config_manager.get('first_messages_threshold', 3)}) inappropriato (AI).")
+                # Ban su Google Sheets (esistente)
                 self.sheets_manager.ban_user(user_id, username, f"Primo messaggio inappropriato AI (msg #{total_user_messages})")
+                # Ban anche su CSV (nuovo)
+                self.csv_manager.ban_user(user_id, username, f"Primo messaggio inappropriato AI (msg #{total_user_messages})")
                 motivo_finale_rifiuto += f" - Ban applicato (AI primo msg #{total_user_messages})"
 
         elif is_disallowed_lang_ai:
@@ -626,12 +684,21 @@ class TelegramModerationBot:
             
             if is_edited: # Ban più aggressivo per edit
                 self.logger.warning(f"Ban per {username} ({user_id}): messaggio editato in lingua non consentita (AI).")
+                # Ban su Google Sheets (esistente)
                 self.sheets_manager.ban_user(user_id, username, "Edit in lingua non consentita (AI)")
+                # Ban anche su CSV (nuovo)
+                self.csv_manager.ban_user(user_id, username, "Edit in lingua non consentita (AI)")
                 motivo_finale_rifiuto += " - Ban applicato (lingua AI edit)"
 
         # 9. Azione finale (delete, notifica) e salvataggio log
         if action_taken:
+            # Salva su Google Sheets (esistente)
             self.sheets_manager.save_message(
+                message_text, user_id, username, chat_id, group_name,
+                approvato=False, domanda=is_question_ai, motivo_rifiuto=motivo_finale_rifiuto
+            )
+            # Salva anche su CSV (nuovo)
+            self.csv_manager.save_message(
                 message_text, user_id, username, chat_id, group_name,
                 approvato=False, domanda=is_question_ai, motivo_rifiuto=motivo_finale_rifiuto
             )
@@ -651,7 +718,13 @@ class TelegramModerationBot:
         else:
             # Messaggio approvato
             self.logger.info(f"Messaggio {'modificato ' if is_edited else ''}da {username} approvato. Domanda: {is_question_ai}.")
+            # Salva su Google Sheets (esistente)
             self.sheets_manager.save_message(
+                message_text, user_id, username, chat_id, group_name,
+                approvato=True, domanda=is_question_ai, motivo_rifiuto=""
+            )
+            # Salva anche su CSV (nuovo)
+            self.csv_manager.save_message(
                 message_text, user_id, username, chat_id, group_name,
                 approvato=True, domanda=is_question_ai, motivo_rifiuto=""
             )
@@ -678,7 +751,14 @@ class TelegramModerationBot:
             recent_messages_in_chat = self.message_cache.get_recent_messages(cid, user_id)
             for msg_id, msg_text in recent_messages_in_chat:
                 try:
+                    # Salva su Google Sheets (esistente)
                     self.sheets_manager.save_message(
+                        msg_text or "[Testo non disponibile]", user_id, username, cid, group_name_for_sheets,
+                        approvato=False, domanda=False,
+                        motivo_rifiuto="pulizia automatica per spam cross-gruppo"
+                    )
+                    # Salva anche su CSV (nuovo)
+                    self.csv_manager.save_message(
                         msg_text or "[Testo non disponibile]", user_id, username, cid, group_name_for_sheets,
                         approvato=False, domanda=False,
                         motivo_rifiuto="pulizia automatica per spam cross-gruppo"
@@ -761,13 +841,17 @@ class TelegramModerationBot:
     async def backup_now_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Attiva manualmente un backup dei dati di Google Sheets."""
         # backup_sheets_to_csv è sincrono, quindi va eseguito in un thread per non bloccare l'async loop
-        def sync_backup_action(_bot_unused): # _bot_unused per compatibilità con provider
-            return asyncio.to_thread(self.backup_manager.backup_sheets_to_csv)
+        async def sync_backup_action(_bot_unused): # _bot_unused per compatibilità con provider
+            # Backup Google Sheets
+            sheets_result = await asyncio.to_thread(self.backup_manager.backup_sheets_to_csv)
+            # Backup CSV
+            csv_result = self.csv_manager.backup_csv_files()
+            return sheets_result and csv_result
 
         await self._generic_admin_command_executor(
             update, context, "backup_now",
             action_coroutine_provider=sync_backup_action,
-            success_message="✅ Backup dei fogli Google Sheets completato!",
+            success_message="✅ Backup di Google Sheets e CSV completato!",
             failure_message="❌ Errore durante il backup manuale. Controlla i log.",
             group_specific=False
         )
@@ -846,6 +930,7 @@ class TelegramModerationBot:
 
         mod_stats = self.moderation_logic.get_stats()
         counter_stats = self.user_counters.get_stats()
+        csv_stats = self.csv_manager.get_csv_stats()  # NUOVO
         
         stats_msg = "📊 **Statistiche Moderazione Bot** 📊\n\n"
         stats_msg += f"🔹 **Messaggi Processati:** {self.bot_stats['total_messages_processed']}\n"
@@ -866,6 +951,14 @@ class TelegramModerationBot:
         stats_msg += f"🔸 Utenti tracciati: {counter_stats['total_tracked_users']}\n"
         stats_msg += f"🔸 Nuovi utenti (≤3 msg): {counter_stats['first_time_users']}\n"
         stats_msg += f"🔸 Utenti veterani (>3 msg): {counter_stats['veteran_users']}\n\n"
+        stats_msg += f"💾 **Sistema CSV (Backup Locale):**\n"
+        if csv_stats.get('csv_disabled'):
+            stats_msg += f"🔸 CSV: DISABILITATO\n"
+        else:
+            stats_msg += f"🔸 Messaggi in CSV: {csv_stats.get('messages', 0)}\n"
+            stats_msg += f"🔸 Admin in CSV: {csv_stats.get('admin', 0)}\n"
+            stats_msg += f"🔸 Bannati in CSV: {csv_stats.get('banned_users', 0)}\n"
+        stats_msg += "\n"
 
         # Potremmo aggiungere info sui lock attivi, stato night mode, etc.
         active_locks = [k for k, v in self._operation_locks.items() if v] # Non usato più os.path.exists
