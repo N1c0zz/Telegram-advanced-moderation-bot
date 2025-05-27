@@ -422,6 +422,14 @@ class TelegramModerationBot:
         message_text = message.text
         message_id = message.message_id
 
+        # DEBUG: Log ogni messaggio che arriva
+        self.logger.info(f"🔍 DEBUG: Messaggio ricevuto da {username}: '{message_text}'")
+        self.logger.info(f"🔍 DEBUG: Lunghezza messaggio: {len(message_text)} caratteri")
+        
+        # Test caratteri cirillici
+        cyrillic_count = sum(1 for char in message_text if '\u0400' <= char <= '\u04FF')
+        self.logger.info(f"🔍 DEBUG: Caratteri cirillici rilevati: {cyrillic_count}")
+
         # Aggiungi messaggio alla cache per "first N messages" e spam cross-gruppo
         if not is_edited: # Solo per messaggi nuovi
             self.message_cache.add_message(chat_id, user_id, message_id, message_text)
@@ -439,22 +447,16 @@ class TelegramModerationBot:
             self.sheets_manager.save_admin_message(message_text, user_id, username, chat_id, group_name)
             return
 
-        # 2. Controllo Night Mode (solo per messaggi nuovi, gli edit non dovrebbero passare se NM attiva)
-        # Se la night mode è attiva e non siamo nel periodo di grazia, i messaggi degli utenti normali
-        # non dovrebbero nemmeno arrivare perché i permessi sono ristretti. Se arrivano, è anomalo.
-        # Potrebbe essere un admin (già gestito sopra) o un bug.
-        # La logica di cancellazione durante night mode era nel codice originale, la manteniamo per sicurezza.
+        # 2. Controllo Night Mode (solo per messaggi nuovi)
         if self.is_night_mode_period_active(chat_id):
             is_in_grace_period = self.night_mode_transition_active and \
-                                 self.night_mode_grace_period_end and \
-                                 datetime.now() < self.night_mode_grace_period_end
+                                self.night_mode_grace_period_end and \
+                                datetime.now() < self.night_mode_grace_period_end
             if not is_in_grace_period:
                 self.logger.warning(
                     f"Messaggio ricevuto da {username} ({user_id}) in {group_name} ({chat_id}) "
                     "durante Night Mode attiva (fuori periodo di grazia). Cancellazione."
                 )
-                # Non dovrebbe accadere se i permessi sono impostati correttamente.
-                # Questo è un fallback.
                 try:
                     await context.bot.delete_message(chat_id, message_id)
                     self.bot_stats['messages_deleted_total'] += 1
@@ -462,7 +464,6 @@ class TelegramModerationBot:
                 except Exception as e:
                     self.logger.error(f"Errore cancellazione messaggio durante Night Mode anomala: {e}")
                 return
-
 
         # 3. Utenti già bannati (controllo su Google Sheets)
         if self.sheets_manager.is_user_banned(user_id):
@@ -514,26 +515,17 @@ class TelegramModerationBot:
                     self.logger.info("Cross-posting rilevato, ma contenuto sembra legittimo. Nessun ban/delete automatico.")
                     # Il messaggio procederà con la normale analisi
 
-        # --- Controllo messaggi brevi/emoji (skip analisi AI) ---
-        if self._is_short_or_emoji_message(message_text):
-            self.logger.info(f"Messaggio breve/emoji da {username}: skip analisi AI, salvato come appropriato.")
-            self.sheets_manager.save_message(
-                message_text, user_id, username, chat_id, group_name,
-                approvato=True, domanda=False, motivo_rifiuto=""
-            )
-            return
-
-        # --- Inizio analisi contenuto ---
-        action_taken = False
-        motivo_finale_rifiuto = ""
+        # ===== CONTROLLI DI SICUREZZA PRIORITARI (NON POSSONO ESSERE SALTATI) =====
         
-        # 5. Filtro diretto (parole/pattern bannati ad alta confidenza)
-        if self.moderation_logic.contains_banned_word(message_text):
+        # 5. Filtro diretto (parole/pattern bannati ad alta confidenza) - SEMPRE APPLICATO
+        is_banned_direct = self.moderation_logic.contains_banned_word(message_text)
+        self.logger.info(f"🔍 DEBUG: Filtro diretto dice bannato: {is_banned_direct}")
+        
+        if is_banned_direct:
             self.logger.info(f"Messaggio {'modificato ' if is_edited else ''}da {username} contiene parole/pattern bannati.")
             motivo_finale_rifiuto = f"parole/pattern bannati (msg {'editato' if is_edited else 'nuovo'})"
-            action_taken = True
             self.bot_stats['messages_deleted_by_direct_filter'] += 1
-            self.moderation_logic.stats['direct_filter_matches'] +=1 # Statistica della classe moderation_logic
+            self.moderation_logic.stats['direct_filter_matches'] +=1
             
             if is_edited: # Qualsiasi edit inappropriato = ban automatico
                 self.logger.warning(f"Ban per {username} ({user_id}): messaggio editato inappropriato - possibile elusione moderazione.")
@@ -545,39 +537,99 @@ class TelegramModerationBot:
                 self.sheets_manager.ban_user(user_id, username, f"Primo messaggio inappropriato (msg #{total_user_messages})")
                 motivo_finale_rifiuto += f" - Ban applicato (primo msg #{total_user_messages})"
 
-        # 6. Analisi AI (OpenAI o fallback) se non già bloccato dal filtro diretto
-        is_inappropriate_ai, is_question_ai, is_disallowed_lang_ai = (False, False, False)
-        if not action_taken:
-            is_inappropriate_ai, is_question_ai, is_disallowed_lang_ai = self.moderation_logic.analyze_with_openai(message_text)
-            if is_inappropriate_ai:
-                self.logger.info(f"Messaggio {'modificato ' if is_edited else ''}da {username} rilevato come inappropriato da AI.")
-                motivo_finale_rifiuto = f"contenuto inappropriato (AI) (msg {'editato' if is_edited else 'nuovo'})"
-                action_taken = True
-                self.bot_stats['messages_deleted_by_ai_filter'] += 1
+            # Cancella e salva
+            self.sheets_manager.save_message(
+                message_text, user_id, username, chat_id, group_name,
+                approvato=False, domanda=False, motivo_rifiuto=motivo_finale_rifiuto
+            )
+            try:
+                await context.bot.delete_message(chat_id, message_id)
+                self.bot_stats['messages_deleted_total'] += 1
+                if is_edited: self.bot_stats['edited_messages_deleted'] += 1
                 
-                if is_edited:
-                    self.logger.warning(f"Ban per {username} ({user_id}): messaggio editato inappropriato (AI).")
-                    self.sheets_manager.ban_user(user_id, username, "Edit inappropriato (AI)")
-                    motivo_finale_rifiuto += " - Ban applicato (AI edit)"
-                elif total_user_messages <= self.config_manager.get('first_messages_threshold', 3):
-                    self.logger.warning(f"Ban per {username} ({user_id}): primo messaggio ({total_user_messages}/{self.config_manager.get('first_messages_threshold', 3)}) inappropriato (AI).")
-                    self.sheets_manager.ban_user(user_id, username, f"Primo messaggio inappropriato AI (msg #{total_user_messages})")
-                    motivo_finale_rifiuto += f" - Ban applicato (AI primo msg #{total_user_messages})"
+                notif_text = "❌ Messaggio eliminato. Attenersi alle linee guida del gruppo.\nScrivimi in chat il comando /rules per conoscere le regole del gruppo!\n"
+                if "Ban applicato" in motivo_finale_rifiuto:
+                    notif_text += " L'utente è stato sanzionato."
 
+                await self._send_temporary_notification(context, chat_id, notif_text)
+            except Exception as e:
+                self.logger.error(f"Errore cancellazione messaggio ({motivo_finale_rifiuto}): {e}")
+            return
 
-            elif is_disallowed_lang_ai:
-                self.logger.info(f"Messaggio {'modificato ' if is_edited else ''}da {username} rilevato in lingua non consentita da AI/Langdetect.")
-                motivo_finale_rifiuto = f"lingua non consentita (msg {'editato' if is_edited else 'nuovo'})"
-                action_taken = True
-                self.bot_stats['messages_deleted_by_ai_filter'] += 1 # Anche la lingua conta come filtro AI qui
-                # Generalmente non si banna per lingua al primo colpo, a meno che non sia spam palese
-                if is_edited : # Ban più aggressivo per edit
-                     self.logger.warning(f"Ban per {username} ({user_id}): messaggio editato in lingua non consentita.")
-                     self.sheets_manager.ban_user(user_id, username, "Edit in lingua non consentita")
-                     motivo_finale_rifiuto += " - Ban applicato (lingua edit)"
+        # 6. Controllo lingua di base - SEMPRE APPLICATO
+        is_disallowed_lang_basic = self.moderation_logic.is_language_disallowed(message_text)
+        self.logger.info(f"🔍 DEBUG: Lingua non consentita (controllo base): {is_disallowed_lang_basic}")
+        
+        if is_disallowed_lang_basic:
+            self.logger.info(f"Messaggio {'modificato ' if is_edited else ''}da {username} in lingua non consentita.")
+            motivo_finale_rifiuto = f"lingua non consentita (msg {'editato' if is_edited else 'nuovo'})"
+            self.bot_stats['messages_deleted_by_ai_filter'] += 1 # Conta come filtro AI per statistiche
+            
+            if is_edited: # Ban per edit in lingua straniera
+                self.logger.warning(f"Ban per {username} ({user_id}): messaggio editato in lingua non consentita.")
+                self.sheets_manager.ban_user(user_id, username, "Edit in lingua non consentita")
+                motivo_finale_rifiuto += " - Ban applicato (lingua edit)"
 
+            self.sheets_manager.save_message(
+                message_text, user_id, username, chat_id, group_name,
+                approvato=False, domanda=False, motivo_rifiuto=motivo_finale_rifiuto
+            )
+            try:
+                await context.bot.delete_message(chat_id, message_id)
+                self.bot_stats['messages_deleted_total'] += 1
+                if is_edited: self.bot_stats['edited_messages_deleted'] += 1
+                await self._send_temporary_notification(context, chat_id, "❌ Messaggio eliminato (lingua non consentita).")
+            except Exception as e:
+                self.logger.error(f"Errore cancellazione messaggio (lingua): {e}")
+            return
 
-        # 7. Azione finale (delete, notifica) e salvataggio log
+        # ===== FINE CONTROLLI DI SICUREZZA PRIORITARI =====
+
+        # 7. Solo DOPO i controlli di sicurezza: controllo messaggi brevi/emoji (skip analisi AI)
+        is_short_message = self._is_short_or_emoji_message(message_text)
+        self.logger.info(f"🔍 DEBUG: Considerato messaggio breve: {is_short_message}")
+        
+        if is_short_message:
+            self.logger.info(f"Messaggio breve/emoji da {username}: controlli sicurezza OK, skip analisi AI costosa.")
+            self.sheets_manager.save_message(
+                message_text, user_id, username, chat_id, group_name,
+                approvato=True, domanda=False, motivo_rifiuto=""
+            )
+            return
+
+        # 8. Analisi AI completa (OpenAI o fallback) - solo per messaggi non brevi
+        is_inappropriate_ai, is_question_ai, is_disallowed_lang_ai = self.moderation_logic.analyze_with_openai(message_text)
+        
+        action_taken = False
+        motivo_finale_rifiuto = ""
+        
+        if is_inappropriate_ai:
+            self.logger.info(f"Messaggio {'modificato ' if is_edited else ''}da {username} rilevato come inappropriato da AI.")
+            motivo_finale_rifiuto = f"contenuto inappropriato (AI) (msg {'editato' if is_edited else 'nuovo'})"
+            action_taken = True
+            self.bot_stats['messages_deleted_by_ai_filter'] += 1
+            
+            if is_edited:
+                self.logger.warning(f"Ban per {username} ({user_id}): messaggio editato inappropriato (AI).")
+                self.sheets_manager.ban_user(user_id, username, "Edit inappropriato (AI)")
+                motivo_finale_rifiuto += " - Ban applicato (AI edit)"
+            elif total_user_messages <= self.config_manager.get('first_messages_threshold', 3):
+                self.logger.warning(f"Ban per {username} ({user_id}): primo messaggio ({total_user_messages}/{self.config_manager.get('first_messages_threshold', 3)}) inappropriato (AI).")
+                self.sheets_manager.ban_user(user_id, username, f"Primo messaggio inappropriato AI (msg #{total_user_messages})")
+                motivo_finale_rifiuto += f" - Ban applicato (AI primo msg #{total_user_messages})"
+
+        elif is_disallowed_lang_ai:
+            self.logger.info(f"Messaggio {'modificato ' if is_edited else ''}da {username} rilevato in lingua non consentita da AI/Langdetect.")
+            motivo_finale_rifiuto = f"lingua non consentita AI (msg {'editato' if is_edited else 'nuovo'})"
+            action_taken = True
+            self.bot_stats['messages_deleted_by_ai_filter'] += 1
+            
+            if is_edited: # Ban più aggressivo per edit
+                self.logger.warning(f"Ban per {username} ({user_id}): messaggio editato in lingua non consentita (AI).")
+                self.sheets_manager.ban_user(user_id, username, "Edit in lingua non consentita (AI)")
+                motivo_finale_rifiuto += " - Ban applicato (lingua AI edit)"
+
+        # 9. Azione finale (delete, notifica) e salvataggio log
         if action_taken:
             self.sheets_manager.save_message(
                 message_text, user_id, username, chat_id, group_name,
@@ -864,6 +916,22 @@ class TelegramModerationBot:
             except Exception:
                 pass  # Se non riesce nemmeno questo, ignora
 
+    async def reset_ai_cache_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Reset della cache analisi AI (solo per admin)."""
+        user = update.effective_user
+        if not user: return
+        exempt_users_list = self.config_manager.get('exempt_users', [])
+        if not (user.id in exempt_users_list or (user.username and user.username in exempt_users_list)):
+            await update.message.reply_text("❌ Non sei autorizzato a eseguire questo comando.")
+            return
+
+        cache_size_before = len(self.moderation_logic.analysis_cache.cache)
+        self.moderation_logic.analysis_cache.cache.clear()
+        self.moderation_logic.analysis_cache.access_count.clear()
+        
+        await update.message.reply_text(f"🗑️ Cache AI resettata! Rimossi {cache_size_before} elementi dalla cache.")
+        self.logger.info(f"Cache AI resettata da admin {user.username} ({user.id})")
+
     # --- Bot Lifecycle & Scheduler ---
     def _run_scheduler_thread(self):
         """Esegue i task programmati in un thread separato."""
@@ -896,37 +964,50 @@ class TelegramModerationBot:
 
     def _is_short_or_emoji_message(self, text: str) -> bool:
         """
-        Verifica se il messaggio è troppo breve o contiene solo emoji/simboli
-        per essere analizzato dall'AI.
+        Verifica se il messaggio è davvero innocuo e breve.
+        ATTENZIONE: Questi messaggi saltano l'analisi AI ma NON i controlli di sicurezza base!
+        CORREZIONE: Aggiunto controllo per parole inglesi comuni.
         """
         import re
         
-        # Rimuovi spazi
         clean_text = text.strip()
         
-        # Messaggi molto brevi (meno di 10 caratteri)
-        if len(clean_text) < 10:
-            return True
+        # NUOVO: Lista di parole inglesi comuni che NON devono essere considerate "sicure"
+        english_words = {
+            'hi', 'hello', 'hey', 'how', 'are', 'you', 'what', 'where', 'when', 
+            'why', 'who', 'can', 'could', 'would', 'should', 'will', 'thanks', 
+            'thank', 'please', 'sorry', 'yes', 'no', 'okay', 'ok', 'bye', 'goodbye',
+            'good', 'bad', 'nice', 'great', 'welcome', 'see', 'the', 'and', 'but'
+        }
         
-        # Solo emoji, simboli, numeri, punteggiatura
-        # Rimuovi tutto tranne lettere
-        letters_only = re.sub(r'[^a-zA-ZÀ-ÿ]', '', clean_text)
+        # NUOVO: Se è una parola inglese comune, NON è sicura (deve passare per i controlli normali)
+        if clean_text.lower() in english_words:
+            return False
         
-        # Se rimangono meno di 5 lettere, probabilmente è solo emoji/simboli
-        if len(letters_only) < 5:
-            return True
-            
-        # Pattern comuni innocui
-        innocuous_patterns = [
-            r'^(si|no|ok|ciao|grazie|prego)$',  # Parole singole comuni
-            r'^[0-9\s\-+/()]+$',               # Solo numeri e simboli matematici
-            r'^[.,!?;:\s]+$',                  # Solo punteggiatura
-        ]
-        
-        for pattern in innocuous_patterns:
-            if re.match(pattern, clean_text.lower()):
+        # Messaggi MOLTO brevi (meno di 6 caratteri) E solo caratteri sicuri
+        if len(clean_text) < 6:
+            # Verifica che contenga solo caratteri latini/numeri/punteggiatura basic
+            safe_pattern = r'^[a-zA-Z0-9\s.,!?;:()\-àèéìíîòóùú]*$'
+            if re.match(safe_pattern, clean_text):
                 return True
+            else:
+                # Contiene caratteri sospetti nonostante sia breve
+                return False
         
+        # Messaggi fino a 12 caratteri MA solo se pattern molto specifici e sicuri
+        if len(clean_text) <= 12:
+            safe_short_patterns = [
+                r'^(si|no|ok|ciao|grazie|prego|bene|male|buono|ottimo|perfetto)$',  # Parole singole italiane
+                r'^[0-9\s\-+/().,]+$',                       # Solo numeri e simboli
+                r'^[.,!?;:\s]+$',                           # Solo punteggiatura
+                r'^[👍👎❤️😊😢🎉✨🔥💪😍😂🤔😅]+$',            # Solo emoji comuni
+            ]
+            
+            for pattern in safe_short_patterns:
+                if re.match(pattern, clean_text.lower()):
+                    return True
+        
+        # Se arriva qui, NON è un messaggio breve sicuro
         return False
 
 
@@ -957,6 +1038,7 @@ class TelegramModerationBot:
         self.application.add_handler(CommandHandler("nightonall", self.night_mode_all_on_command))
         self.application.add_handler(CommandHandler("nightoffall", self.night_mode_all_off_command))
         self.application.add_handler(CommandHandler("rules", self.show_rules_command))
+        self.application.add_handler(CommandHandler("resetcache", self.reset_ai_cache_command))
 
         # Pianifica Night Mode
         self._schedule_night_mode_jobs()

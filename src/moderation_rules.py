@@ -112,6 +112,16 @@ class AdvancedModerationBotLogic: # Rinominato per chiarezza rispetto a Telegram
         if not normalized_text:
             return False
 
+        # DEBUG: Log del testo normalizzato
+        self.logger.debug(f"Filtro diretto - Testo originale: '{text}'")
+        self.logger.debug(f"Filtro diretto - Testo normalizzato: '{normalized_text}'")
+
+        # Test rapido per caratteri cirillici PRIMA della normalizzazione
+        cyrillic_count = sum(1 for char in text if '\u0400' <= char <= '\u04FF' or '\u0500' <= char <= '\u052F')
+        if cyrillic_count >= 3:  # Se ci sono almeno 3 caratteri cirillici
+            self.logger.info(f"MATCH filtro diretto: {cyrillic_count} caratteri cirillici in '{text[:50]}...'")
+            return True
+
         # SOLO spam ovvio e inequivocabile
         minimal_patterns = [
             # Vendita esplicita con prezzo E contatto privato (tutti insieme)
@@ -126,16 +136,16 @@ class AdvancedModerationBotLogic: # Rinominato per chiarezza rispetto a Telegram
             r"(?:soldi|euro)\s+facili",
             r"mining.*pool.*(?:join|entra)",
             
-            # NUOVO: Alfabeti non latini (cirillico, arabo, cinese, etc.)
-            r"[а-я].*[0-9]+.*(?:дол|руб|€|\$)",  # Cirillico con cifre e valute
-            r"[а-яё]{10,}",  # Testo lungo in cirillico (probabilmente spam)
-            r"[а-яё\u0400-\u04FF\u0500-\u052F]{5,}.*[0-9]",  # Cirillico con numeri
-            r"[\u4e00-\u9fff]{5,}",  # Cinese
-            r"[\u0600-\u06ff]{5,}",  # Arabo
+            # Pattern cirillico (dopo normalizzazione, potrebbero essere translitterati)
+            r"zarabotok",  # заработок translitterato
+            r"rabota",     # работа translitterato  
+            r"pishi",      # пиши translitterato
+            r"kontakt",    # контакт translitterato
         ]
 
         for pattern in minimal_patterns:
             if re.search(pattern, normalized_text, re.IGNORECASE):
+                self.logger.info(f"MATCH filtro diretto: pattern '{pattern}' in '{normalized_text}'")
                 return True
 
         return False
@@ -205,46 +215,87 @@ class AdvancedModerationBotLogic: # Rinominato per chiarezza rispetto a Telegram
 
     def is_language_disallowed(self, text: str) -> bool:
         """Determina se la lingua del messaggio non è tra quelle consentite."""
-        if not self.allowed_languages or "any" in self.allowed_languages: # Se 'any' è consentito, nessuna lingua è vietata
+        if not self.allowed_languages or "any" in self.allowed_languages:
+            return False
+
+        # PRIMO: Controllo rapido alfabeti non latini (PRIMA di langdetect)
+        cyrillic_chars = sum(1 for char in text if '\u0400' <= char <= '\u04FF' or '\u0500' <= char <= '\u052F')
+        arabic_chars = sum(1 for char in text if '\u0600' <= char <= '\u06FF')
+        chinese_chars = sum(1 for char in text if '\u4e00' <= char <= '\u9fff')
+        
+        total_alpha_chars = len([c for c in text if c.isalpha()])
+        
+        if total_alpha_chars > 0:
+            non_latin_ratio = (cyrillic_chars + arabic_chars + chinese_chars) / total_alpha_chars
+            if non_latin_ratio > 0.3:  # Se più del 30% sono caratteri non latini
+                self.logger.info(f"Lingua non consentita: {non_latin_ratio:.2%} caratteri non latini in '{text[:50]}...'")
+                return True
+
+        # NUOVO: Controllo parole inglesi comuni PRIMA di langdetect
+        if total_alpha_chars >= 2:  # Almeno 2 lettere per questo controllo
+            text_lower = text.lower().strip()
+            
+            # Lista parole inglesi comuni che NON dovrebbero passare
+            common_english_words = [
+                'hello', 'hi', 'hey', 'how', 'are', 'you', 'what', 'where', 'when', 
+                'why', 'who', 'can', 'could', 'would', 'should', 'will', 'shall',
+                'good', 'bad', 'nice', 'great', 'thank', 'thanks', 'please', 'sorry',
+                'yes', 'no', 'okay', 'ok', 'welcome', 'bye', 'goodbye', 'see',
+                'the', 'and', 'but', 'for', 'with', 'this', 'that', 'there',
+                'have', 'has', 'had', 'was', 'were', 'been', 'being', 'make',
+                'made', 'get', 'got', 'take', 'took', 'come', 'came', 'go', 'went'
+            ]
+            
+            # Controlla se il messaggio è composto principalmente da parole inglesi
+            words_in_message = text_lower.replace('.', '').replace('!', '').replace('?', '').split()
+            if words_in_message:
+                english_word_count = sum(1 for word in words_in_message if word in common_english_words)
+                english_ratio = english_word_count / len(words_in_message)
+                
+                # Se più del 50% delle parole sono inglesi comuni, blocca
+                if english_ratio > 0.5:
+                    self.logger.info(f"Rilevato messaggio prevalentemente inglese: {english_ratio:.2%} parole inglesi comuni in '{text}'")
+                    return True
+
+        # SECONDO: Per testi lunghi, usa langdetect
+        if total_alpha_chars < 8:  # Mantieni soglia originale per langdetect
             return False
 
         detected_lang_code = self.detect_language(text)
         if detected_lang_code:
-            # Confronta il codice lingua rilevato (es. 'en', 'it') con la lista di lingue consentite
-            # Le lingue consentite in config potrebbero essere nomi (es. "italian")
-            # langdetect restituisce codici ISO 639-1 (es. "it")
-            # È necessario mappare o usare codici ISO nella config.
-            # Per semplicità, assumiamo che allowed_languages contenga codici ISO.
-            if detected_lang_code not in self.allowed_languages:
-                self.logger.info(f"Lingua non consentita rilevata: '{detected_lang_code}'. Consentite: {self.allowed_languages}")
-                return True
-            return False # Lingua rilevata ed è consentita
-
-        # Fallback se langdetect non è disponibile o non rileva nulla:
-        # Si potrebbe usare un semplice controllo basato su un piccolo dizionario di parole italiane comuni
-        # ma è meno affidabile. Per ora, se non rilevato, lo consideriamo consentito per evitare falsi positivi.
-        # Il tuo `is_primarily_non_italian` originale era un buon tentativo di fallback.
-        # Lo integriamo qui come ultima spiaggia se langdetect fallisce.
-        if not LANGDETECT_AVAILABLE and len(text.split()) >= 5: # Solo se langdetect non c'è e testo non troppo corto
-            words = re.findall(r'\b\w+\b', text.lower())
-            if not words: return False
-
-            italian_common_words = {
-                "il", "la", "lo", "i", "gli", "le", "un", "uno", "una", "di", "a", "da", "in", "con", "su", "per",
-                "e", "o", "ma", "se", "che", "non", "si", "mi", "ti", "ci", "vi", "lo", "li", "ne",
-                "sono", "sei", "è", "siamo", "siete", "hanno", "ho", "hai", "ha", "abbiamo", "avete",
-                "ciao", "grazie", "prego", "come", "quando", "dove", "perché", "cosa", "chi",
-                "università", "esame", "studio", "lezione", "professore", "crediti"
-            } # Lista di esempio, da espandere per maggiore accuratezza
+            # Mappa le lingue consentite ai codici ISO
+            lang_mapping = {
+                'italian': 'it',
+                'it': 'it'
+            }
             
-            italian_word_count = sum(1 for word in words if word in italian_common_words)
-            # Se meno del 15% delle parole sono italiane comuni (e ci sono almeno 5 parole),
-            # potrebbe essere un'altra lingua. Soglia da aggiustare.
-            if len(words) > 0 and (italian_word_count / len(words)) < 0.15:
-                self.logger.info(f"Fallback: lingua probabilmente non italiana basata su conteggio parole per '{text[:50]}...'")
+            allowed_codes = []
+            for lang in self.allowed_languages:
+                mapped = lang_mapping.get(lang.lower(), lang.lower())
+                allowed_codes.append(mapped)
+            
+            if detected_lang_code not in allowed_codes:
+                # CONTROLLO SPECIALE: Se rileva come non-italiano ma contiene parole chiaramente italiane
+                italian_university_words = [
+                    'università', 'esame', 'professore', 'crediti', 'corso', 'laurea', 
+                    'triennale', 'magistrale', 'dottorato', 'facoltà', 'appunti', 
+                    'panieri', 'lezioni', 'tesi', 'sessione', 'matricola', 'ateneo',
+                    'dipartimento', 'cattedra', 'semestre', 'frequenza', 'iscrizione',
+                    'buongiorno', 'buonasera', 'grazie', 'prego', 'ancora', 'non',
+                    'oggi', 'domani', 'quando', 'dove', 'come', 'perché', 'cosa'
+                ]
+                
+                text_lower = text.lower()
+                italian_words_found = [word for word in italian_university_words if word in text_lower]
+                
+                if italian_words_found:
+                    self.logger.info(f"Langdetect rileva '{detected_lang_code}' ma trovate parole italiane: {italian_words_found} in '{text}' - PERMESSO")
+                    return False
+                
+                self.logger.info(f"Lingua non consentita rilevata: '{detected_lang_code}' (consentite: {allowed_codes}) per '{text[:50]}...'")
                 return True
-        
-        return False # Lingua consentita o non rilevabile con certezza
+
+        return False
 
     def analyze_with_openai(self, message_text: str) -> Tuple[bool, bool, bool]:
         """
