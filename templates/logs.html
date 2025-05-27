@@ -1,0 +1,389 @@
+{% extends "base.html" %}
+
+{% block title %}Log - Bot Moderazione{% endblock %}
+
+{% block content %}
+<div class="px-4 py-6 sm:px-0">
+    <!-- Header -->
+    <div class="mb-8">
+        <h1 class="text-3xl font-bold text-gray-900">Log Sistema</h1>
+        <p class="mt-2 text-gray-600">Visualizza i log del bot di moderazione in tempo reale</p>
+    </div>
+
+    <!-- Controls -->
+    <div class="bg-white shadow rounded-lg mb-6">
+        <div class="px-6 py-4 border-b border-gray-200">
+            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between">
+                <h2 class="text-lg font-medium text-gray-900 mb-4 sm:mb-0">
+                    <i class="fas fa-file-alt mr-2"></i>
+                    Log Recenti
+                </h2>
+                <div class="flex flex-col sm:flex-row gap-3">
+                    <!-- Auto-refresh toggle -->
+                    <label class="inline-flex items-center">
+                        <input type="checkbox" id="auto-refresh-toggle" checked
+                               class="form-checkbox h-4 w-4 text-blue-600 rounded">
+                        <span class="ml-2 text-sm text-gray-700">Auto-aggiornamento</span>
+                    </label>
+                    
+                    <!-- Log level filter -->
+                    <select id="log-level-filter" 
+                            class="text-sm border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500">
+                        <option value="all">Tutti i livelli</option>
+                        <option value="ERROR">Solo Errori</option>
+                        <option value="WARNING">Solo Warning</option>
+                        <option value="INFO">Solo Info</option>
+                        <option value="DEBUG">Solo Debug</option>
+                    </select>
+                    
+                    <!-- Refresh button -->
+                    <button onclick="refreshLogs()" 
+                            class="inline-flex items-center px-3 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                        <i class="fas fa-sync-alt mr-2"></i>
+                        Aggiorna
+                    </button>
+                    
+                    <!-- Clear button -->
+                    <button onclick="clearLogDisplay()" 
+                            class="inline-flex items-center px-3 py-2 border border-red-300 text-sm font-medium rounded-md text-red-700 bg-white hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500">
+                        <i class="fas fa-trash mr-2"></i>
+                        Pulisci
+                    </button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Stats -->
+        <div class="px-6 py-3 bg-gray-50 border-b border-gray-200">
+            <div class="flex flex-wrap gap-4 text-sm">
+                <span class="flex items-center">
+                    <div class="w-3 h-3 bg-red-500 rounded-full mr-2"></div>
+                    Errori: <span id="error-count" class="font-medium ml-1">0</span>
+                </span>
+                <span class="flex items-center">
+                    <div class="w-3 h-3 bg-yellow-500 rounded-full mr-2"></div>
+                    Warning: <span id="warning-count" class="font-medium ml-1">0</span>
+                </span>
+                <span class="flex items-center">
+                    <div class="w-3 h-3 bg-blue-500 rounded-full mr-2"></div>
+                    Info: <span id="info-count" class="font-medium ml-1">0</span>
+                </span>
+                <span class="flex items-center">
+                    <div class="w-3 h-3 bg-gray-500 rounded-full mr-2"></div>
+                    Debug: <span id="debug-count" class="font-medium ml-1">0</span>
+                </span>
+                <span class="text-gray-500">
+                    Ultimo aggiornamento: <span id="last-update">Mai</span>
+                </span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Log Display -->
+    <div class="bg-black rounded-lg shadow-lg overflow-hidden">
+        <div class="px-4 py-3 bg-gray-800 border-b border-gray-700">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center">
+                    <div class="flex space-x-2">
+                        <div class="w-3 h-3 bg-red-500 rounded-full"></div>
+                        <div class="w-3 h-3 bg-yellow-500 rounded-full"></div>
+                        <div class="w-3 h-3 bg-green-500 rounded-full"></div>
+                    </div>
+                    <span class="ml-4 text-gray-300 text-sm font-mono">bot_logs.txt</span>
+                </div>
+                <div class="flex items-center space-x-2">
+                    <button onclick="scrollToBottom()" 
+                            class="text-gray-400 hover:text-white text-sm">
+                        <i class="fas fa-arrow-down"></i>
+                    </button>
+                    <button onclick="scrollToTop()" 
+                            class="text-gray-400 hover:text-white text-sm">
+                        <i class="fas fa-arrow-up"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+        
+        <div id="log-container" 
+             class="h-96 overflow-y-auto p-4 font-mono text-sm leading-relaxed custom-scrollbar"
+             style="background-color: #0d1117;">
+            <div id="log-content" class="space-y-1">
+                <div class="text-gray-400 text-center py-8">
+                    <i class="fas fa-spinner fa-spin text-xl mb-2"></i>
+                    <div>Caricamento log...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Search and Filter -->
+    <div class="mt-6 bg-white shadow rounded-lg">
+        <div class="px-6 py-4 border-b border-gray-200">
+            <h3 class="text-lg font-medium text-gray-900">
+                <i class="fas fa-search mr-2"></i>
+                Ricerca nei Log
+            </h3>
+        </div>
+        <div class="px-6 py-4">
+            <div class="flex flex-col sm:flex-row gap-4">
+                <div class="flex-1">
+                    <input type="text" id="log-search" placeholder="Cerca nei log..." 
+                           class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500">
+                </div>
+                <button onclick="searchLogs()" 
+                        class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <i class="fas fa-search mr-2"></i>
+                    Cerca
+                </button>
+                <button onclick="clearSearch()" 
+                        class="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500">
+                    <i class="fas fa-times mr-2"></i>
+                    Reset
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let autoRefreshInterval;
+let allLogs = [];
+let filteredLogs = [];
+let logCounts = { ERROR: 0, WARNING: 0, INFO: 0, DEBUG: 0 };
+
+// Initialize
+document.addEventListener('DOMContentLoaded', function() {
+    refreshLogs();
+    setupAutoRefresh();
+    setupEventListeners();
+});
+
+// Setup event listeners
+function setupEventListeners() {
+    // Auto-refresh toggle
+    document.getElementById('auto-refresh-toggle').addEventListener('change', function() {
+        if (this.checked) {
+            setupAutoRefresh();
+        } else {
+            clearInterval(autoRefreshInterval);
+        }
+    });
+    
+    // Log level filter
+    document.getElementById('log-level-filter').addEventListener('change', function() {
+        filterLogs();
+    });
+    
+    // Search on Enter key
+    document.getElementById('log-search').addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+            searchLogs();
+        }
+    });
+}
+
+// Setup auto refresh
+function setupAutoRefresh() {
+    clearInterval(autoRefreshInterval);
+    autoRefreshInterval = setInterval(refreshLogs, 5000); // Refresh every 5 seconds
+}
+
+// Refresh logs
+async function refreshLogs() {
+    try {
+        const response = await fetch('/api/logs');
+        const data = await response.json();
+        
+        if (data.logs) {
+            allLogs = data.logs;
+            parseLogs();
+            filterLogs();
+            updateLastUpdateTime();
+        } else if (data.error) {
+            showLogError('Errore nel caricamento dei log: ' + data.error);
+        }
+    } catch (error) {
+        console.error('Error fetching logs:', error);
+        showLogError('Errore nella comunicazione con il server');
+    }
+}
+
+// Parse logs and extract info
+function parseLogs() {
+    logCounts = { ERROR: 0, WARNING: 0, INFO: 0, DEBUG: 0 };
+    
+    allLogs.forEach(line => {
+        if (line.includes(' - ERROR - ')) logCounts.ERROR++;
+        else if (line.includes(' - WARNING - ')) logCounts.WARNING++;
+        else if (line.includes(' - INFO - ')) logCounts.INFO++;
+        else if (line.includes(' - DEBUG - ')) logCounts.DEBUG++;
+    });
+    
+    // Update counters
+    document.getElementById('error-count').textContent = logCounts.ERROR;
+    document.getElementById('warning-count').textContent = logCounts.WARNING;
+    document.getElementById('info-count').textContent = logCounts.INFO;
+    document.getElementById('debug-count').textContent = logCounts.DEBUG;
+}
+
+// Filter logs based on level
+function filterLogs() {
+    const selectedLevel = document.getElementById('log-level-filter').value;
+    
+    if (selectedLevel === 'all') {
+        filteredLogs = allLogs;
+    } else {
+        filteredLogs = allLogs.filter(line => line.includes(` - ${selectedLevel} - `));
+    }
+    
+    displayLogs();
+}
+
+// Display logs in the container
+function displayLogs() {
+    const container = document.getElementById('log-content');
+    
+    if (filteredLogs.length === 0) {
+        container.innerHTML = `
+            <div class="text-gray-400 text-center py-8">
+                <i class="fas fa-inbox text-xl mb-2"></i>
+                <div>Nessun log da visualizzare</div>
+            </div>
+        `;
+        return;
+    }
+    
+    const logHtml = filteredLogs.map(line => formatLogLine(line)).join('');
+    container.innerHTML = logHtml;
+    
+    // Auto-scroll to bottom if user hasn't manually scrolled up
+    const logContainer = document.getElementById('log-container');
+    const isScrolledToBottom = logContainer.scrollHeight - logContainer.clientHeight <= logContainer.scrollTop + 1;
+    
+    if (isScrolledToBottom || document.getElementById('auto-refresh-toggle').checked) {
+        scrollToBottom();
+    }
+}
+
+// Format a single log line with colors and highlighting
+function formatLogLine(line) {
+    let className = 'text-gray-300';
+    let icon = '';
+    
+    if (line.includes(' - ERROR - ')) {
+        className = 'text-red-400';
+        icon = '<i class="fas fa-times-circle text-red-500 mr-2"></i>';
+    } else if (line.includes(' - WARNING - ')) {
+        className = 'text-yellow-400';
+        icon = '<i class="fas fa-exclamation-triangle text-yellow-500 mr-2"></i>';
+    } else if (line.includes(' - INFO - ')) {
+        className = 'text-blue-400';
+        icon = '<i class="fas fa-info-circle text-blue-500 mr-2"></i>';
+    } else if (line.includes(' - DEBUG - ')) {
+        className = 'text-gray-500';
+        icon = '<i class="fas fa-bug text-gray-600 mr-2"></i>';
+    }
+    
+    // Escape HTML and preserve formatting
+    const escapedLine = line
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    
+    // Highlight timestamps
+    const timestampRegex = /(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3})/g;
+    const highlightedLine = escapedLine.replace(timestampRegex, '<span class="text-green-400">$1</span>');
+    
+    return `<div class="${className} hover:bg-gray-800 px-2 py-1 rounded transition-colors">${icon}${highlightedLine}</div>`;
+}
+
+// Search logs
+function searchLogs() {
+    const searchTerm = document.getElementById('log-search').value.toLowerCase();
+    
+    if (!searchTerm) {
+        filteredLogs = allLogs;
+    } else {
+        filteredLogs = allLogs.filter(line => 
+            line.toLowerCase().includes(searchTerm)
+        );
+    }
+    
+    // Apply level filter to search results
+    const selectedLevel = document.getElementById('log-level-filter').value;
+    if (selectedLevel !== 'all') {
+        filteredLogs = filteredLogs.filter(line => line.includes(` - ${selectedLevel} - `));
+    }
+    
+    displayLogs();
+    
+    if (filteredLogs.length === 0 && searchTerm) {
+        showNotification(`Nessun risultato trovato per "${searchTerm}"`, 'info');
+    }
+}
+
+// Clear search
+function clearSearch() {
+    document.getElementById('log-search').value = '';
+    filterLogs(); // Reset to level filter only
+}
+
+// Clear log display
+function clearLogDisplay() {
+    if (confirm('Sei sicuro di voler pulire la visualizzazione dei log?')) {
+        document.getElementById('log-content').innerHTML = `
+            <div class="text-gray-400 text-center py-8">
+                <i class="fas fa-broom text-xl mb-2"></i>
+                <div>Display pulito - aggiorna per ricaricare i log</div>
+            </div>
+        `;
+        allLogs = [];
+        filteredLogs = [];
+        logCounts = { ERROR: 0, WARNING: 0, INFO: 0, DEBUG: 0 };
+        
+        // Reset counters
+        document.getElementById('error-count').textContent = '0';
+        document.getElementById('warning-count').textContent = '0';
+        document.getElementById('info-count').textContent = '0';
+        document.getElementById('debug-count').textContent = '0';
+    }
+}
+
+// Scroll functions
+function scrollToBottom() {
+    const container = document.getElementById('log-container');
+    container.scrollTop = container.scrollHeight;
+}
+
+function scrollToTop() {
+    const container = document.getElementById('log-container');
+    container.scrollTop = 0;
+}
+
+// Show log error
+function showLogError(message) {
+    document.getElementById('log-content').innerHTML = `
+        <div class="text-red-400 text-center py-8">
+            <i class="fas fa-exclamation-triangle text-xl mb-2"></i>
+            <div>${message}</div>
+        </div>
+    `;
+}
+
+// Update last update time
+function updateLastUpdateTime() {
+    const now = new Date();
+    const timeString = now.toLocaleTimeString('it-IT');
+    document.getElementById('last-update').textContent = timeString;
+}
+
+// Cleanup on page unload
+window.addEventListener('beforeunload', function() {
+    clearInterval(autoRefreshInterval);
+});
+</script>
+{% endblock %}

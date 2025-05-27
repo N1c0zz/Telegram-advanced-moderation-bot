@@ -1,0 +1,470 @@
+{% extends "base.html" %}
+
+{% block title %}AI Prompt - Bot Moderazione{% endblock %}
+
+{% block content %}
+<div class="px-4 py-6 sm:px-0">
+    <!-- Header -->
+    <div class="mb-8">
+        <h1 class="text-3xl font-bold text-gray-900">Modifica Prompt OpenAI</h1>
+        <p class="mt-2 text-gray-600">Personalizza il prompt di sistema utilizzato dall'intelligenza artificiale per la moderazione</p>
+    </div>
+
+    <!-- Warning Banner -->
+    <div class="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-8">
+        <div class="flex">
+            <div class="flex-shrink-0">
+                <i class="fas fa-exclamation-triangle text-yellow-400 text-xl"></i>
+            </div>
+            <div class="ml-3">
+                <p class="text-sm text-yellow-700">
+                    <strong>Attenzione:</strong> Modificare questo prompt può influenzare significativamente il comportamento 
+                    del bot di moderazione. Assicurati di testare accuratamente le modifiche prima dell'uso in produzione.
+                    <strong>È necessario riavviare il bot</strong> per applicare le modifiche.
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Prompt Editor -->
+    <div class="bg-white shadow rounded-lg mb-8">
+        <div class="px-6 py-4 border-b border-gray-200">
+            <div class="flex justify-between items-center">
+                <h2 class="text-lg font-medium text-gray-900">
+                    <i class="fas fa-brain mr-2"></i>
+                    Editor Prompt di Sistema
+                </h2>
+                <div class="flex items-center space-x-4">
+                    <span class="text-sm text-gray-500" id="char-count">0 caratteri</span>
+                    <button onclick="formatPrompt()" 
+                            class="text-sm text-blue-600 hover:text-blue-800">
+                        <i class="fas fa-magic mr-1"></i>Formatta
+                    </button>
+                </div>
+            </div>
+        </div>
+        <div class="p-6">
+            <form id="prompt-form">
+                <div class="mb-4">
+                    <label for="prompt-editor" class="block text-sm font-medium text-gray-700 mb-2">
+                        Prompt di Sistema
+                    </label>
+                    <textarea id="prompt-editor" 
+                              rows="25" 
+                              class="mt-1 focus:ring-blue-500 focus:border-blue-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md font-mono"
+                              placeholder="Inserisci qui il prompt di sistema per OpenAI...">{{ current_prompt }}</textarea>
+                    <p class="mt-2 text-sm text-gray-500">
+                        Questo prompt definisce come l'AI analizzerà i messaggi per determinare se sono appropriati, 
+                        se contengono domande, e se sono in lingue consentite.
+                    </p>
+                </div>
+
+                <!-- Prompt Guidelines -->
+                <div class="mb-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
+                    <h3 class="font-medium text-blue-900 mb-2">
+                        <i class="fas fa-lightbulb mr-1"></i>
+                        Linee Guida per il Prompt
+                    </h3>
+                    <ul class="text-sm text-blue-800 space-y-1">
+                        <li>• Il prompt deve sempre richiedere risposte nel formato: "INAPPROPRIATO: SI/NO", "DOMANDA: SI/NO", "LINGUA: CONSENTITA/NON CONSENTITA"</li>
+                        <li>• Sii specifico sui criteri di moderazione per evitare falsi positivi</li>
+                        <li>• Includi esempi chiari di messaggi appropriati e inappropriati</li>
+                        <li>• Considera il contesto universitario dei gruppi Telegram</li>
+                        <li>• Mantieni il prompt conciso ma completo per ottimizzare i costi API</li>
+                    </ul>
+                </div>
+
+                <!-- Action Buttons -->
+                <div class="flex justify-between items-center">
+                    <div class="flex space-x-4">
+                        <button type="button" onclick="loadDefaultPrompt()" 
+                                class="px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                            <i class="fas fa-undo mr-2"></i>
+                            Ripristina Default
+                        </button>
+                        <button type="button" onclick="validatePrompt()" 
+                                class="px-4 py-2 border border-blue-300 text-sm font-medium rounded-md text-blue-700 bg-blue-50 hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                            <i class="fas fa-check-circle mr-2"></i>
+                            Valida Prompt
+                        </button>
+                    </div>
+                    
+                    <div class="flex space-x-4">
+                        <button type="button" onclick="previewPrompt()" 
+                                class="px-4 py-2 border border-green-300 text-sm font-medium rounded-md text-green-700 bg-green-50 hover:bg-green-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500">
+                            <i class="fas fa-eye mr-2"></i>
+                            Anteprima
+                        </button>
+                        <button type="submit" id="save-prompt-btn"
+                                class="px-6 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                            <i class="fas fa-save mr-2"></i>
+                            Salva Prompt
+                        </button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Prompt Statistics -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+        <div class="bg-white shadow rounded-lg p-6">
+            <div class="flex items-center">
+                <div class="flex-shrink-0">
+                    <div class="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center">
+                        <i class="fas fa-font text-white"></i>
+                    </div>
+                </div>
+                <div class="ml-5 w-0 flex-1">
+                    <dl>
+                        <dt class="text-sm font-medium text-gray-500 truncate">Caratteri</dt>
+                        <dd id="stat-chars" class="text-lg font-medium text-gray-900">0</dd>
+                    </dl>
+                </div>
+            </div>
+        </div>
+
+        <div class="bg-white shadow rounded-lg p-6">
+            <div class="flex items-center">
+                <div class="flex-shrink-0">
+                    <div class="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center">
+                        <i class="fas fa-list-alt text-white"></i>
+                    </div>
+                </div>
+                <div class="ml-5 w-0 flex-1">
+                    <dl>
+                        <dt class="text-sm font-medium text-gray-500 truncate">Righe</dt>
+                        <dd id="stat-lines" class="text-lg font-medium text-gray-900">0</dd>
+                    </dl>
+                </div>
+            </div>
+        </div>
+
+        <div class="bg-white shadow rounded-lg p-6">
+            <div class="flex items-center">
+                <div class="flex-shrink-0">
+                    <div class="w-8 h-8 bg-yellow-500 rounded-full flex items-center justify-center">
+                        <i class="fas fa-dollar-sign text-white"></i>
+                    </div>
+                </div>
+                <div class="ml-5 w-0 flex-1">
+                    <dl>
+                        <dt class="text-sm font-medium text-gray-500 truncate">Costo Stimato</dt>
+                        <dd id="stat-cost" class="text-lg font-medium text-gray-900">$0.00</dd>
+                    </dl>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Help Section -->
+    <div class="bg-white shadow rounded-lg">
+        <div class="px-6 py-4 border-b border-gray-200">
+            <h2 class="text-lg font-medium text-gray-900">
+                <i class="fas fa-question-circle mr-2"></i>
+                Guida al Prompt Engineering
+            </h2>
+        </div>
+        <div class="p-6">
+            <div class="prose prose-sm max-w-none">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                        <h3 class="text-base font-medium text-gray-900 mb-3">Struttura del Prompt</h3>
+                        <ul class="text-sm text-gray-700 space-y-2">
+                            <li class="flex items-start">
+                                <i class="fas fa-arrow-right text-blue-500 mr-2 mt-1 text-xs"></i>
+                                <span><strong>Ruolo:</strong> Definisci il ruolo dell'AI (es. "Sei un moderatore esperto")</span>
+                            </li>
+                            <li class="flex items-start">
+                                <i class="fas fa-arrow-right text-blue-500 mr-2 mt-1 text-xs"></i>
+                                <span><strong>Formato Output:</strong> Specifica il formato di risposta richiesto</span>
+                            </li>
+                            <li class="flex items-start">
+                                <i class="fas fa-arrow-right text-blue-500 mr-2 mt-1 text-xs"></i>
+                                <span><strong>Criteri:</strong> Elenca criteri chiari per la moderazione</span>
+                            </li>
+                            <li class="flex items-start">
+                                <i class="fas fa-arrow-right text-blue-500 mr-2 mt-1 text-xs"></i>
+                                <span><strong>Esempi:</strong> Fornisci esempi positivi e negativi</span>
+                            </li>
+                        </ul>
+                    </div>
+                    
+                    <div>
+                        <h3 class="text-base font-medium text-gray-900 mb-3">Best Practices</h3>
+                        <ul class="text-sm text-gray-700 space-y-2">
+                            <li class="flex items-start">
+                                <i class="fas fa-check text-green-500 mr-2 mt-1 text-xs"></i>
+                                <span>Usa linguaggio chiaro e specifico</span>
+                            </li>
+                            <li class="flex items-start">
+                                <i class="fas fa-check text-green-500 mr-2 mt-1 text-xs"></i>
+                                <span>Evita ambiguità nei criteri di giudizio</span>
+                            </li>
+                            <li class="flex items-start">
+                                <i class="fas fa-check text-green-500 mr-2 mt-1 text-xs"></i>
+                                <span>Considera il contesto del dominio (università)</span>
+                            </li>
+                            <li class="flex items-start">
+                                <i class="fas fa-check text-green-500 mr-2 mt-1 text-xs"></i>
+                                <span>Testa con casi edge e situazioni limite</span>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Preview Modal -->
+<div id="preview-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full hidden z-50">
+    <div class="relative top-10 mx-auto p-5 border w-4/5 max-w-4xl shadow-lg rounded-md bg-white">
+        <div class="mt-3">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-lg font-medium text-gray-900">Anteprima Prompt</h3>
+                <button onclick="closePreviewModal()" class="text-gray-400 hover:text-gray-600">
+                    <i class="fas fa-times text-xl"></i>
+                </button>
+            </div>
+            <div class="max-h-96 overflow-y-auto bg-gray-100 p-4 rounded-md font-mono text-sm">
+                <pre id="preview-content" class="whitespace-pre-wrap"></pre>
+            </div>
+            <div class="mt-4 flex justify-end">
+                <button onclick="closePreviewModal()" 
+                        class="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700">
+                    Chiudi
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let promptChanged = false;
+const promptEditor = document.getElementById('prompt-editor');
+
+// Initialize
+document.addEventListener('DOMContentLoaded', function() {
+    updateStats();
+    setupEventListeners();
+});
+
+function setupEventListeners() {
+    // Update stats on input
+    promptEditor.addEventListener('input', function() {
+        updateStats();
+        promptChanged = true;
+        updateSaveButtonState();
+    });
+    
+    // Form submission
+    document.getElementById('prompt-form').addEventListener('submit', function(e) {
+        e.preventDefault();
+        savePrompt();
+    });
+}
+
+// Update statistics
+function updateStats() {
+    const content = promptEditor.value;
+    const chars = content.length;
+    const lines = content.split('\n').length;
+    
+    // Rough cost estimation (GPT-3.5-turbo: ~$0.002 per 1K tokens, estimate 1 char ≈ 0.75 tokens)
+    const estimatedTokens = Math.ceil(chars * 0.75);
+    const estimatedCost = (estimatedTokens / 1000) * 0.002;
+    
+    document.getElementById('char-count').textContent = `${chars.toLocaleString()} caratteri`;
+    document.getElementById('stat-chars').textContent = chars.toLocaleString();
+    document.getElementById('stat-lines').textContent = lines.toLocaleString();
+    document.getElementById('stat-cost').textContent = `$${estimatedCost.toFixed(4)}`;
+}
+
+// Update save button state
+function updateSaveButtonState() {
+    const saveBtn = document.getElementById('save-prompt-btn');
+    if (promptChanged) {
+        saveBtn.classList.remove('bg-blue-600', 'hover:bg-blue-700');
+        saveBtn.classList.add('bg-yellow-600', 'hover:bg-yellow-700');
+        saveBtn.innerHTML = '<i class="fas fa-exclamation-triangle mr-2"></i>Salva Modifiche';
+    }
+}
+
+// Save prompt
+async function savePrompt() {
+    const saveBtn = document.getElementById('save-prompt-btn');
+    const originalText = saveBtn.innerHTML;
+    
+    saveBtn.disabled = true;
+    saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Salvataggio...';
+    
+    try {
+        const prompt = promptEditor.value;
+        
+        if (!prompt.trim()) {
+            throw new Error('Il prompt non può essere vuoto');
+        }
+        
+        const response = await fetch('/api/openai-prompt', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ prompt: prompt })
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            showNotification(result.message, 'success');
+            promptChanged = false;
+            
+            // Reset button appearance
+            saveBtn.classList.remove('bg-yellow-600', 'hover:bg-yellow-700');
+            saveBtn.classList.add('bg-blue-600', 'hover:bg-blue-700');
+            saveBtn.innerHTML = '<i class="fas fa-save mr-2"></i>Salva Prompt';
+            
+            if (result.backup_created) {
+                showNotification(`Backup creato: ${result.backup_created}`, 'info');
+            }
+        } else {
+            showNotification(result.message || 'Errore nel salvataggio', 'error');
+        }
+    } catch (error) {
+        console.error('Error saving prompt:', error);
+        showNotification('Errore: ' + error.message, 'error');
+    } finally {
+        saveBtn.disabled = false;
+        if (saveBtn.innerHTML.includes('Salvataggio...')) {
+            saveBtn.innerHTML = originalText;
+        }
+    }
+}
+
+// Format prompt
+function formatPrompt() {
+    const content = promptEditor.value;
+    
+    // Basic formatting: fix line breaks and spacing
+    const formatted = content
+        .split('\n')
+        .map(line => line.trim())
+        .filter(line => line.length > 0 || line === '') // Keep empty lines as separators
+        .join('\n')
+        .replace(/\n{3,}/g, '\n\n'); // Limit consecutive empty lines to 2
+    
+    promptEditor.value = formatted;
+    updateStats();
+    promptChanged = true;
+    updateSaveButtonState();
+    
+    showNotification('Prompt formattato', 'success');
+}
+
+// Validate prompt
+function validatePrompt() {
+    const content = promptEditor.value.toLowerCase();
+    const issues = [];
+    
+    // Check for required response format
+    if (!content.includes('inappropriato') || !content.includes('domanda') || !content.includes('lingua')) {
+        issues.push('Il prompt dovrebbe richiedere risposte per INAPPROPRIATO, DOMANDA e LINGUA');
+    }
+    
+    // Check for examples
+    if (!content.includes('esempio')) {
+        issues.push('Considera di aggiungere esempi per migliorare la precisione');
+    }
+    
+    // Check length (too short or too long)
+    if (content.length < 100) {
+        issues.push('Il prompt sembra troppo breve per essere efficace');
+    } else if (content.length > 10000) {
+        issues.push('Il prompt è molto lungo, considera di accorciarlo per ridurre i costi');
+    }
+    
+    // Check for clear instructions
+    if (!content.includes('analizza') && !content.includes('determina') && !content.includes('verifica')) {
+        issues.push('Il prompt dovrebbe contenere istruzioni chiare di analisi');
+    }
+    
+    if (issues.length === 0) {
+        showNotification('✅ Prompt validato con successo!', 'success');
+    } else {
+        const issuesList = issues.map(issue => `• ${issue}`).join('\n');
+        showNotification(`⚠️ Problemi rilevati:\n${issuesList}`, 'warning');
+    }
+}
+
+// Load default prompt
+function loadDefaultPrompt() {
+    if (confirm('Sei sicuro di voler ripristinare il prompt predefinito? Tutte le modifiche correnti andranno perse.')) {
+        // This would need to be implemented to fetch the default prompt from server
+        showNotification('Funzionalità non ancora implementata', 'info');
+    }
+}
+
+// Preview prompt
+function previewPrompt() {
+    const content = promptEditor.value;
+    document.getElementById('preview-content').textContent = content;
+    document.getElementById('preview-modal').classList.remove('hidden');
+}
+
+// Close preview modal
+function closePreviewModal() {
+    document.getElementById('preview-modal').classList.add('hidden');
+}
+
+// Warn before leaving if there are unsaved changes
+window.addEventListener('beforeunload', function(e) {
+    if (promptChanged) {
+        e.preventDefault();
+        e.returnValue = '';
+        return 'Ci sono modifiche non salvate al prompt. Sei sicuro di voler uscire?';
+    }
+});
+
+// Close modal when clicking outside
+document.getElementById('preview-modal').addEventListener('click', function(e) {
+    if (e.target === this) {
+        closePreviewModal();
+    }
+});
+
+// Keyboard shortcuts
+document.addEventListener('keydown', function(e) {
+    // Ctrl+S to save
+    if (e.ctrlKey && e.key === 's') {
+        e.preventDefault();
+        savePrompt();
+    }
+    
+    // Ctrl+Shift+F to format
+    if (e.ctrlKey && e.shiftKey && e.key === 'F') {
+        e.preventDefault();
+        formatPrompt();
+    }
+    
+    // Escape to close modals
+    if (e.key === 'Escape') {
+        if (!document.getElementById('preview-modal').classList.contains('hidden')) {
+            closePreviewModal();
+        }
+    }
+});
+
+// Auto-save draft (optional feature)
+let autoSaveTimeout;
+promptEditor.addEventListener('input', function() {
+    clearTimeout(autoSaveTimeout);
+    autoSaveTimeout = setTimeout(() => {
+        // Could implement auto-save to localStorage here
+        // localStorage.setItem('prompt_draft', promptEditor.value);
+    }, 5000);
+});
+</script>
+{% endblock %}

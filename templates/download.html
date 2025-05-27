@@ -1,0 +1,415 @@
+{% extends "base.html" %}
+
+{% block title %}Download - Bot Moderazione{% endblock %}
+
+{% block content %}
+<div class="px-4 py-6 sm:px-0">
+    <!-- Header -->
+    <div class="mb-8">
+        <h1 class="text-3xl font-bold text-gray-900">Download Dati</h1>
+        <p class="mt-2 text-gray-600">Scarica i dati raccolti dal bot di moderazione</p>
+    </div>
+
+    <!-- CSV Data Overview -->
+    <div class="bg-white shadow rounded-lg mb-8">
+        <div class="px-6 py-4 border-b border-gray-200">
+            <h2 class="text-lg font-medium text-gray-900">
+                <i class="fas fa-database mr-2"></i>
+                Panoramica Dati CSV
+            </h2>
+        </div>
+        <div class="px-6 py-4">
+            {% if csv_stats.get('csv_disabled') %}
+                <div class="text-center py-8 text-yellow-600">
+                    <i class="fas fa-exclamation-triangle text-3xl mb-4"></i>
+                    <h3 class="text-lg font-medium mb-2">Sistema CSV Disabilitato</h3>
+                    <p class="text-gray-600">Il salvataggio dei dati in formato CSV è attualmente disabilitato.</p>
+                    <p class="text-sm text-gray-500 mt-2">Abilita il CSV nelle impostazioni per iniziare a raccogliere dati.</p>
+                </div>
+            {% else %}
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <!-- Messages -->
+                    <div class="bg-blue-50 rounded-lg p-6 text-center">
+                        <div class="w-12 h-12 bg-blue-500 rounded-full flex items-center justify-center mx-auto mb-4">
+                            <i class="fas fa-comments text-white text-xl"></i>
+                        </div>
+                        <h3 class="text-lg font-semibold text-blue-900 mb-2">Messaggi</h3>
+                        <p class="text-3xl font-bold text-blue-600 mb-2">{{ csv_stats.get('messages', 0) }}</p>
+                        <p class="text-sm text-blue-700">Messaggi processati</p>
+                    </div>
+
+                    <!-- Admin Messages -->
+                    <div class="bg-green-50 rounded-lg p-6 text-center">
+                        <div class="w-12 h-12 bg-green-500 rounded-full flex items-center justify-center mx-auto mb-4">
+                            <i class="fas fa-user-shield text-white text-xl"></i>
+                        </div>
+                        <h3 class="text-lg font-semibold text-green-900 mb-2">Admin</h3>
+                        <p class="text-3xl font-bold text-green-600 mb-2">{{ csv_stats.get('admin', 0) }}</p>
+                        <p class="text-sm text-green-700">Messaggi admin</p>
+                    </div>
+
+                    <!-- Banned Users -->
+                    <div class="bg-red-50 rounded-lg p-6 text-center">
+                        <div class="w-12 h-12 bg-red-500 rounded-full flex items-center justify-center mx-auto mb-4">
+                            <i class="fas fa-ban text-white text-xl"></i>
+                        </div>
+                        <h3 class="text-lg font-semibold text-red-900 mb-2">Utenti Bannati</h3>
+                        <p class="text-3xl font-bold text-red-600 mb-2">{{ csv_stats.get('banned_users', 0) }}</p>
+                        <p class="text-sm text-red-700">Utenti sanzionati</p>
+                    </div>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Download Options -->
+    {% if not csv_stats.get('csv_disabled') %}
+    <div class="bg-white shadow rounded-lg mb-8">
+        <div class="px-6 py-4 border-b border-gray-200">
+            <h2 class="text-lg font-medium text-gray-900">
+                <i class="fas fa-download mr-2"></i>
+                Opzioni Download
+            </h2>
+        </div>
+        <div class="px-6 py-4">
+            <div class="space-y-6">
+                <!-- Complete Package -->
+                <div class="border-2 border-dashed border-gray-300 rounded-lg p-6 hover:border-blue-400 transition-colors">
+                    <div class="flex items-center justify-between">
+                        <div class="flex-1">
+                            <h3 class="text-lg font-medium text-gray-900 mb-2">
+                                <i class="fas fa-archive text-blue-600 mr-2"></i>
+                                Pacchetto Completo
+                            </h3>
+                            <p class="text-gray-600 mb-4">
+                                Scarica tutti i dati CSV in un archivio ZIP compresso. Include messaggi, 
+                                dati admin, utenti bannati e eventuali backup.
+                            </p>
+                            <div class="flex flex-wrap gap-2 mb-4">
+                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                                    <i class="fas fa-file-csv mr-1"></i>
+                                    messages.csv
+                                </span>
+                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                    <i class="fas fa-file-csv mr-1"></i>
+                                    admin_messages.csv
+                                </span>
+                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                                    <i class="fas fa-file-csv mr-1"></i>
+                                    banned_users.csv
+                                </span>
+                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+                                    <i class="fas fa-folder mr-1"></i>
+                                    backups/
+                                </span>
+                            </div>
+                        </div>
+                        <div class="ml-6">
+                            <button onclick="downloadCompletePackage()" id="download-complete-btn"
+                                    class="inline-flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 shadow-lg hover:shadow-xl transition-all">
+                                <i class="fas fa-download mr-2"></i>
+                                Scarica ZIP
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Individual Files -->
+                <div class="border border-gray-200 rounded-lg p-6">
+                    <h3 class="text-lg font-medium text-gray-900 mb-4">
+                        <i class="fas fa-file-alt text-gray-600 mr-2"></i>
+                        File Individuali
+                    </h3>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <!-- Messages CSV -->
+                        <div class="bg-blue-50 rounded-lg p-4">
+                            <div class="flex items-center justify-between mb-3">
+                                <div class="flex items-center">
+                                    <i class="fas fa-comments text-blue-600 mr-2"></i>
+                                    <span class="font-medium text-blue-900">Messaggi</span>
+                                </div>
+                                <span class="text-sm text-blue-600 font-medium">{{ csv_stats.get('messages', 0) }} righe</span>
+                            </div>
+                            <p class="text-sm text-blue-700 mb-3">
+                                Tutti i messaggi processati dal bot con informazioni di moderazione
+                            </p>
+                            <button onclick="downloadIndividualFile('messages')" 
+                                    class="w-full inline-flex items-center justify-center px-3 py-2 border border-blue-300 text-sm font-medium rounded-md text-blue-700 bg-white hover:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                <i class="fas fa-download mr-2"></i>
+                                Scarica
+                            </button>
+                        </div>
+
+                        <!-- Admin CSV -->
+                        <div class="bg-green-50 rounded-lg p-4">
+                            <div class="flex items-center justify-between mb-3">
+                                <div class="flex items-center">
+                                    <i class="fas fa-user-shield text-green-600 mr-2"></i>
+                                    <span class="font-medium text-green-900">Admin</span>
+                                </div>
+                                <span class="text-sm text-green-600 font-medium">{{ csv_stats.get('admin', 0) }} righe</span>
+                            </div>
+                            <p class="text-sm text-green-700 mb-3">
+                                Messaggi inviati da utenti amministratori
+                            </p>
+                            <button onclick="downloadIndividualFile('admin')" 
+                                    class="w-full inline-flex items-center justify-center px-3 py-2 border border-green-300 text-sm font-medium rounded-md text-green-700 bg-white hover:bg-green-50 focus:outline-none focus:ring-2 focus:ring-green-500">
+                                <i class="fas fa-download mr-2"></i>
+                                Scarica
+                            </button>
+                        </div>
+
+                        <!-- Banned Users CSV -->
+                        <div class="bg-red-50 rounded-lg p-4">
+                            <div class="flex items-center justify-between mb-3">
+                                <div class="flex items-center">
+                                    <i class="fas fa-ban text-red-600 mr-2"></i>
+                                    <span class="font-medium text-red-900">Bannati</span>
+                                </div>
+                                <span class="text-sm text-red-600 font-medium">{{ csv_stats.get('banned_users', 0) }} righe</span>
+                            </div>
+                            <p class="text-sm text-red-700 mb-3">
+                                Lista degli utenti bannati automaticamente
+                            </p>
+                            <button onclick="downloadIndividualFile('banned_users')" 
+                                    class="w-full inline-flex items-center justify-center px-3 py-2 border border-red-300 text-sm font-medium rounded-md text-red-700 bg-white hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-500">
+                                <i class="fas fa-download mr-2"></i>
+                                Scarica
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Data Information -->
+    <div class="bg-white shadow rounded-lg">
+        <div class="px-6 py-4 border-b border-gray-200">
+            <h2 class="text-lg font-medium text-gray-900">
+                <i class="fas fa-info-circle mr-2"></i>
+                Informazioni sui Dati
+            </h2>
+        </div>
+        <div class="px-6 py-4">
+            <div class="prose prose-sm max-w-none">
+                <h3 class="text-base font-medium text-gray-900 mb-3">Cosa contengono i file CSV:</h3>
+                
+                <div class="space-y-4">
+                    <div class="border-l-4 border-blue-500 bg-blue-50 p-4 rounded-r-lg">
+                        <h4 class="font-medium text-blue-900 mb-2">
+                            <i class="fas fa-comments mr-1"></i>
+                            messages.csv
+                        </h4>
+                        <p class="text-sm text-blue-800">
+                            Contiene tutti i messaggi processati dal bot con le seguenti informazioni:
+                        </p>
+                        <ul class="text-xs text-blue-700 mt-2 list-disc list-inside">
+                            <li>Timestamp del messaggio</li>
+                            <li>Testo del messaggio</li>
+                            <li>ID utente e username</li>
+                            <li>ID chat e nome gruppo</li>
+                            <li>Stato di approvazione (SI/NO)</li>
+                            <li>Se è una domanda (SI/NO)</li>
+                            <li>Motivo di rifiuto (se applicable)</li>
+                        </ul>
+                    </div>
+
+                    <div class="border-l-4 border-green-500 bg-green-50 p-4 rounded-r-lg">
+                        <h4 class="font-medium text-green-900 mb-2">
+                            <i class="fas fa-user-shield mr-1"></i>
+                            admin_messages.csv
+                        </h4>
+                        <p class="text-sm text-green-800">
+                            Messaggi inviati da utenti amministratori (esenti da moderazione):
+                        </p>
+                        <ul class="text-xs text-green-700 mt-2 list-disc list-inside">
+                            <li>Timestamp del messaggio</li>
+                            <li>Testo del messaggio</li>
+                            <li>ID utente e username admin</li>
+                            <li>ID chat e nome gruppo</li>
+                        </ul>
+                    </div>
+
+                    <div class="border-l-4 border-red-500 bg-red-50 p-4 rounded-r-lg">
+                        <h4 class="font-medium text-red-900 mb-2">
+                            <i class="fas fa-ban mr-1"></i>
+                            banned_users.csv
+                        </h4>
+                        <p class="text-sm text-red-800">
+                            Lista degli utenti bannati automaticamente dal sistema:
+                        </p>
+                        <ul class="text-xs text-red-700 mt-2 list-disc list-inside">
+                            <li>ID utente bannato</li>
+                            <li>Timestamp del ban</li>
+                            <li>Motivo del ban</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="mt-6 p-4 bg-gray-50 rounded-lg">
+                    <h4 class="font-medium text-gray-900 mb-2">
+                        <i class="fas fa-shield-alt mr-1"></i>
+                        Privacy e Sicurezza
+                    </h4>
+                    <ul class="text-sm text-gray-700 space-y-1">
+                        <li>• I dati sono crittografati durante il trasferimento</li>
+                        <li>• I file contengono solo informazioni necessarie per la moderazione</li>
+                        <li>• Gli ID utente sono pseudonimizzati quando possibile</li>
+                        <li>• I backup vengono conservati secondo le policy di ritenzione</li>
+                    </ul>
+                </div>
+
+                <div class="mt-4 p-4 bg-yellow-50 rounded-lg border border-yellow-200">
+                    <h4 class="font-medium text-yellow-900 mb-2">
+                        <i class="fas fa-exclamation-triangle mr-1"></i>
+                        Note Importanti
+                    </h4>
+                    <ul class="text-sm text-yellow-800 space-y-1">
+                        <li>• I file possono essere di grandi dimensioni a seconda dell'attività</li>
+                        <li>• Il download potrebbe richiedere alcuni minuti per essere preparato</li>
+                        <li>• I dati sono aggiornati in tempo reale</li>
+                        <li>• Si consiglia di effettuare backup regolari</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Download Progress Modal -->
+<div id="download-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full hidden z-50">
+    <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+        <div class="mt-3 text-center">
+            <div class="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-blue-100">
+                <i id="download-icon" class="fas fa-download text-blue-600 text-xl"></i>
+            </div>
+            <h3 class="text-lg font-medium text-gray-900 mt-2">Preparazione Download</h3>
+            <div class="mt-2 px-7 py-3">
+                <p id="download-message" class="text-sm text-gray-500">
+                    Sto preparando il tuo download...
+                </p>
+                <div class="mt-4">
+                    <div class="bg-gray-200 rounded-full h-2">
+                        <div id="download-progress" class="bg-blue-600 h-2 rounded-full transition-all duration-300" style="width: 0%"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Download complete package
+async function downloadCompletePackage() {
+    const btn = document.getElementById('download-complete-btn');
+    const originalText = btn.innerHTML;
+    
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Preparazione...';
+    
+    showDownloadModal('Preparazione pacchetto completo...');
+    
+    try {
+        // Show progress simulation
+        simulateProgress();
+        
+        const response = await fetch('/api/download/csv');
+        
+        if (response.ok) {
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            
+            // Get filename from Content-Disposition header or use default
+            const contentDisposition = response.headers.get('Content-Disposition');
+            let filename = 'bot_data.zip';
+            if (contentDisposition) {
+                const filenameMatch = contentDisposition.match(/filename="(.+)"/);
+                if (filenameMatch) {
+                    filename = filenameMatch[1];
+                }
+            }
+            
+            a.style.display = 'none';
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+            
+            hideDownloadModal();
+            showNotification('Download completato con successo!', 'success');
+        } else {
+            const errorData = await response.json();
+            throw new Error(errorData.error || 'Errore nel download');
+        }
+    } catch (error) {
+        console.error('Download error:', error);
+        hideDownloadModal();
+        showNotification('Errore durante il download: ' + error.message, 'error');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+    }
+}
+
+// Download individual file (placeholder - would need backend implementation)
+async function downloadIndividualFile(fileType) {
+    showNotification('Funzionalità non ancora implementata. Usa il pacchetto completo.', 'info');
+}
+
+// Show download modal
+function showDownloadModal(message) {
+    document.getElementById('download-message').textContent = message;
+    document.getElementById('download-progress').style.width = '0%';
+    document.getElementById('download-icon').className = 'fas fa-spinner fa-spin text-blue-600 text-xl';
+    document.getElementById('download-modal').classList.remove('hidden');
+}
+
+// Hide download modal
+function hideDownloadModal() {
+    document.getElementById('download-modal').classList.add('hidden');
+}
+
+// Simulate download progress
+function simulateProgress() {
+    let progress = 0;
+    const progressBar = document.getElementById('download-progress');
+    const messageEl = document.getElementById('download-message');
+    
+    const interval = setInterval(() => {
+        progress += Math.random() * 20;
+        if (progress > 100) progress = 100;
+        
+        progressBar.style.width = progress + '%';
+        
+        if (progress < 30) {
+            messageEl.textContent = 'Raccogliendo i file...';
+        } else if (progress < 60) {
+            messageEl.textContent = 'Comprimendo i dati...';
+        } else if (progress < 90) {
+            messageEl.textContent = 'Finalizzando il pacchetto...';
+        } else {
+            messageEl.textContent = 'Download in corso...';
+            document.getElementById('download-icon').className = 'fas fa-download text-blue-600 text-xl';
+        }
+        
+        if (progress >= 100) {
+            clearInterval(interval);
+        }
+    }, 200);
+}
+
+// Close modal when clicking outside
+document.getElementById('download-modal').addEventListener('click', function(e) {
+    if (e.target === this) {
+        hideDownloadModal();
+    }
+});
+</script>
+{% endblock %}

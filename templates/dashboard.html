@@ -1,0 +1,588 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Bot Moderazione{% endblock %}
+
+{% block content %}
+<div class="px-4 py-6 sm:px-0">
+    <!-- Header -->
+    <div class="mb-8">
+        <h1 class="text-3xl font-bold text-gray-900">Dashboard Bot Moderazione</h1>
+        <p class="mt-2 text-gray-600">Monitora e controlla il bot di moderazione Telegram</p>
+    </div>
+
+    <!-- Status Cards -->
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+        <!-- Bot Status -->
+        <div class="bg-white overflow-hidden shadow rounded-lg card-hover">
+            <div class="p-5">
+                <div class="flex items-center">
+                    <div class="flex-shrink-0">
+                        <div id="status-icon" class="w-8 h-8 bg-gray-400 rounded-full flex items-center justify-center">
+                            <i class="fas fa-robot text-white"></i>
+                        </div>
+                    </div>
+                    <div class="ml-5 w-0 flex-1">
+                        <dl>
+                            <dt class="text-sm font-medium text-gray-500 truncate">Status Bot</dt>
+                            <dd id="bot-status-text" class="text-lg font-medium text-gray-900">Caricamento...</dd>
+                        </dl>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Uptime -->
+        <div class="bg-white overflow-hidden shadow rounded-lg card-hover">
+            <div class="p-5">
+                <div class="flex items-center">
+                    <div class="flex-shrink-0">
+                        <div class="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center">
+                            <i class="fas fa-clock text-white"></i>
+                        </div>
+                    </div>
+                    <div class="ml-5 w-0 flex-1">
+                        <dl>
+                            <dt class="text-sm font-medium text-gray-500 truncate">Uptime</dt>
+                            <dd id="uptime-text" class="text-lg font-medium text-gray-900">-</dd>
+                        </dl>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Memory Usage -->
+        <div class="bg-white overflow-hidden shadow rounded-lg card-hover">
+            <div class="p-5">
+                <div class="flex items-center">
+                    <div class="flex-shrink-0">
+                        <div class="w-8 h-8 bg-yellow-500 rounded-full flex items-center justify-center">
+                            <i class="fas fa-memory text-white"></i>
+                        </div>
+                    </div>
+                    <div class="ml-5 w-0 flex-1">
+                        <dl>
+                            <dt class="text-sm font-medium text-gray-500 truncate">Memoria Bot</dt>
+                            <dd id="memory-text" class="text-lg font-medium text-gray-900">-</dd>
+                        </dl>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- CPU Usage -->
+        <div class="bg-white overflow-hidden shadow rounded-lg card-hover">
+            <div class="p-5">
+                <div class="flex items-center">
+                    <div class="flex-shrink-0">
+                        <div class="w-8 h-8 bg-red-500 rounded-full flex items-center justify-center">
+                            <i class="fas fa-microchip text-white"></i>
+                        </div>
+                    </div>
+                    <div class="ml-5 w-0 flex-1">
+                        <dl>
+                            <dt class="text-sm font-medium text-gray-500 truncate">CPU Sistema</dt>
+                            <dd id="cpu-text" class="text-lg font-medium text-gray-900">-</dd>
+                        </dl>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Control Panel -->
+    <div class="bg-white shadow rounded-lg mb-8">
+        <div class="px-6 py-4 border-b border-gray-200">
+            <h2 class="text-lg font-medium text-gray-900">
+                <i class="fas fa-gamepad mr-2"></i>
+                Controlli Bot
+            </h2>
+        </div>
+        <div class="px-6 py-4">
+            <div class="flex flex-wrap gap-4">
+                <button id="start-btn" onclick="controlBot('start')" 
+                        class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed">
+                    <i class="fas fa-play mr-2"></i>
+                    Avvia
+                </button>
+                
+                <button id="stop-btn" onclick="controlBot('stop')" 
+                        class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 disabled:opacity-50 disabled:cursor-not-allowed">
+                    <i class="fas fa-stop mr-2"></i>
+                    Ferma
+                </button>
+                
+                <button id="restart-btn" onclick="controlBot('restart')" 
+                        class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed">
+                    <i class="fas fa-redo mr-2"></i>
+                    Riavvia
+                </button>
+                
+                <button onclick="refreshData()" 
+                        class="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                    <i class="fas fa-sync-alt mr-2"></i>
+                    Aggiorna
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Recent Activity -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <!-- Recent Deleted Messages -->
+        <div class="bg-white shadow rounded-lg">
+            <div class="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+                <h2 class="text-lg font-medium text-gray-900">
+                    <i class="fas fa-trash-alt mr-2 text-red-500"></i>
+                    Messaggi Cancellati Recenti
+                </h2>
+                <button onclick="refreshDeletedMessages()" class="text-gray-400 hover:text-gray-600">
+                    <i class="fas fa-sync-alt"></i>
+                </button>
+            </div>
+            <div class="px-6 py-4">
+                <div id="deleted-messages" class="space-y-4 max-h-96 overflow-y-auto custom-scrollbar">
+                    <div class="text-center py-8 text-gray-500">
+                        <i class="fas fa-spinner fa-spin text-2xl mb-2"></i>
+                        <p>Caricamento messaggi...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Recent Bans -->
+        <div class="bg-white shadow rounded-lg">
+            <div class="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+                <h2 class="text-lg font-medium text-gray-900">
+                    <i class="fas fa-ban mr-2 text-red-500"></i>
+                    Ban Recenti
+                </h2>
+                <button onclick="refreshBans()" class="text-gray-400 hover:text-gray-600">
+                    <i class="fas fa-sync-alt"></i>
+                </button>
+            </div>
+            <div class="px-6 py-4">
+                <div id="recent-bans" class="space-y-4 max-h-96 overflow-y-auto custom-scrollbar">
+                    <div class="text-center py-8 text-gray-500">
+                        <i class="fas fa-spinner fa-spin text-2xl mb-2"></i>
+                        <p>Caricamento ban...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- System Info -->
+    <div class="mt-8">
+        <div class="bg-white shadow rounded-lg">
+            <div class="px-6 py-4 border-b border-gray-200">
+                <h2 class="text-lg font-medium text-gray-900">
+                    <i class="fas fa-server mr-2"></i>
+                    Informazioni Sistema
+                </h2>
+            </div>
+            <div class="px-6 py-4">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <!-- System Memory -->
+                    <div>
+                        <h3 class="text-sm font-medium text-gray-500 mb-2">Memoria Sistema</h3>
+                        <div class="flex items-center">
+                            <div class="flex-1">
+                                <div class="bg-gray-200 rounded-full h-2">
+                                    <div id="system-memory-bar" class="bg-blue-500 h-2 rounded-full transition-all duration-300" style="width: 0%"></div>
+                                </div>
+                            </div>
+                            <span id="system-memory-text" class="ml-2 text-sm text-gray-600">0%</span>
+                        </div>
+                    </div>
+
+                    <!-- System CPU -->
+                    <div>
+                        <h3 class="text-sm font-medium text-gray-500 mb-2">CPU Sistema</h3>
+                        <div class="flex items-center">
+                            <div class="flex-1">
+                                <div class="bg-gray-200 rounded-full h-2">
+                                    <div id="system-cpu-bar" class="bg-yellow-500 h-2 rounded-full transition-all duration-300" style="width: 0%"></div>
+                                </div>
+                            </div>
+                            <span id="system-cpu-text" class="ml-2 text-sm text-gray-600">0%</span>
+                        </div>
+                    </div>
+
+                    <!-- System Disk -->
+                    <div>
+                        <h3 class="text-sm font-medium text-gray-500 mb-2">Spazio Disco</h3>
+                        <div class="flex items-center">
+                            <div class="flex-1">
+                                <div class="bg-gray-200 rounded-full h-2">
+                                    <div id="system-disk-bar" class="bg-red-500 h-2 rounded-full transition-all duration-300" style="width: 0%"></div>
+                                </div>
+                            </div>
+                            <span id="system-disk-text" class="ml-2 text-sm text-gray-600">0%</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Unban Modal -->
+<div id="unban-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full hidden z-50">
+    <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+        <div class="mt-3 text-center">
+            <div class="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-yellow-100">
+                <i class="fas fa-exclamation-triangle text-yellow-600 text-xl"></i>
+            </div>
+            <h3 class="text-lg font-medium text-gray-900 mt-2">Conferma Sbannamento</h3>
+            <div class="mt-2 px-7 py-3">
+                <p class="text-sm text-gray-500">
+                    Sei sicuro di voler sbannare l'utente <strong id="unban-user-id"></strong>?
+                    Questa azione non può essere annullata.
+                </p>
+            </div>
+            <div class="flex gap-4 px-4 py-3">
+                <button id="confirm-unban-btn" 
+                        class="flex-1 px-4 py-2 bg-red-600 text-white text-base font-medium rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-300">
+                    Sbanna
+                </button>
+                <button onclick="closeUnbanModal()" 
+                        class="flex-1 px-4 py-2 bg-gray-300 text-gray-800 text-base font-medium rounded-md hover:bg-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-300">
+                    Annulla
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let currentUnbanUserId = null;
+
+// Control bot functions
+async function controlBot(action) {
+    const buttons = ['start-btn', 'stop-btn', 'restart-btn'];
+    
+    // Disable all buttons during operation
+    buttons.forEach(id => {
+        const btn = document.getElementById(id);
+        btn.disabled = true;
+        btn.innerHTML = `<i class="fas fa-spinner fa-spin mr-2"></i>${btn.textContent.trim()}`;
+    });
+    
+    try {
+        const response = await fetch(`/api/bot/${action}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            }
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            showNotification(result.message, 'success');
+            // Refresh data after successful operation
+            setTimeout(refreshData, 1000);
+        } else {
+            showNotification(result.message, 'error');
+        }
+    } catch (error) {
+        console.error('Error controlling bot:', error);
+        showNotification('Errore nella comunicazione con il server', 'error');
+    } finally {
+        // Re-enable buttons
+        buttons.forEach(id => {
+            const btn = document.getElementById(id);
+            btn.disabled = false;
+            const icon = btn.querySelector('i');
+            const text = btn.textContent.trim();
+            
+            if (id.includes('start')) {
+                btn.innerHTML = '<i class="fas fa-play mr-2"></i>Avvia';
+            } else if (id.includes('stop')) {
+                btn.innerHTML = '<i class="fas fa-stop mr-2"></i>Ferma';
+            } else if (id.includes('restart')) {
+                btn.innerHTML = '<i class="fas fa-redo mr-2"></i>Riavvia';
+            }
+        });
+    }
+}
+
+// Refresh all data
+async function refreshData() {
+    await Promise.all([
+        updateBotStatus(),
+        refreshDeletedMessages(),
+        refreshBans()
+    ]);
+}
+
+// Update bot status and system info
+async function updateBotStatus() {
+    try {
+        const data = await checkBotStatus();
+        
+        if (data && data.bot) {
+            const bot = data.bot;
+            const system = data.system;
+            
+            // Update bot status
+            const statusIcon = document.getElementById('status-icon');
+            const statusText = document.getElementById('bot-status-text');
+            
+            if (bot.online) {
+                statusIcon.className = 'w-8 h-8 bg-green-500 rounded-full flex items-center justify-center pulse-dot';
+                statusText.textContent = 'Online';
+                statusText.className = 'text-lg font-medium text-green-600';
+            } else {
+                statusIcon.className = 'w-8 h-8 bg-red-500 rounded-full flex items-center justify-center';
+                statusText.textContent = 'Offline';
+                statusText.className = 'text-lg font-medium text-red-600';
+            }
+            
+            // Update uptime
+            if (bot.uptime && bot.online) {
+                // Convert Python timedelta string to seconds
+                const uptimeMatch = bot.uptime.match(/(\d+):(\d+):(\d+)/);
+                if (uptimeMatch) {
+                    const hours = parseInt(uptimeMatch[1]);
+                    const minutes = parseInt(uptimeMatch[2]);
+                    const seconds = parseInt(uptimeMatch[3]);
+                    const totalSeconds = hours * 3600 + minutes * 60 + seconds;
+                    document.getElementById('uptime-text').textContent = formatUptime(totalSeconds);
+                }
+            } else {
+                document.getElementById('uptime-text').textContent = '-';
+            }
+            
+            // Update memory
+            if (bot.memory_usage && bot.online) {
+                document.getElementById('memory-text').textContent = formatBytes(bot.memory_usage * 1024 * 1024);
+            } else {
+                document.getElementById('memory-text').textContent = '-';
+            }
+            
+            // Update system info
+            if (system) {
+                document.getElementById('cpu-text').textContent = system.cpu_usage ? `${system.cpu_usage.toFixed(1)}%` : '-';
+                
+                if (system.memory_usage) {
+                    document.getElementById('system-memory-bar').style.width = `${system.memory_usage}%`;
+                    document.getElementById('system-memory-text').textContent = `${system.memory_usage.toFixed(1)}%`;
+                }
+                
+                if (system.cpu_usage) {
+                    document.getElementById('system-cpu-bar').style.width = `${system.cpu_usage}%`;
+                    document.getElementById('system-cpu-text').textContent = `${system.cpu_usage.toFixed(1)}%`;
+                }
+                
+                if (system.disk_usage) {
+                    document.getElementById('system-disk-bar').style.width = `${system.disk_usage}%`;
+                    document.getElementById('system-disk-text').textContent = `${system.disk_usage.toFixed(1)}%`;
+                }
+            }
+        }
+    } catch (error) {
+        console.error('Error updating bot status:', error);
+    }
+}
+
+// Refresh deleted messages
+async function refreshDeletedMessages() {
+    try {
+        const response = await fetch('/api/recent-deleted');
+        const messages = await response.json();
+        
+        const container = document.getElementById('deleted-messages');
+        
+        if (messages.length === 0) {
+            container.innerHTML = `
+                <div class="text-center py-8 text-gray-500">
+                    <i class="fas fa-inbox text-2xl mb-2"></i>
+                    <p>Nessun messaggio cancellato recentemente</p>
+                </div>
+            `;
+            return;
+        }
+        
+        container.innerHTML = messages.map(msg => `
+            <div class="border-l-4 border-red-400 bg-red-50 p-4 rounded-r-lg fade-in">
+                <div class="flex justify-between items-start mb-2">
+                    <div class="flex-1">
+                        <p class="text-sm font-medium text-red-800">
+                            ${msg.username || 'Utente Sconosciuto'} (ID: ${msg.user_id})
+                        </p>
+                        <p class="text-xs text-red-600">${msg.group_name || 'Gruppo Sconosciuto'}</p>
+                    </div>
+                    <span class="text-xs text-red-500">${formatTimestamp(msg.timestamp)}</span>
+                </div>
+                <div class="mb-2">
+                    <p class="text-sm text-gray-700 bg-white p-2 rounded border italic">
+                        "${msg.messaggio || 'Messaggio non disponibile'}"
+                    </p>
+                </div>
+                <div class="flex justify-between items-center">
+                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                        <i class="fas fa-times-circle mr-1"></i>
+                        ${msg.motivo_rifiuto || 'Motivo non specificato'}
+                    </span>
+                    ${msg.motivo_rifiuto && msg.motivo_rifiuto.includes('Ban applicato') ? 
+                        `<button onclick="showUnbanModal('${msg.user_id}')" 
+                                class="text-xs px-3 py-1 bg-yellow-100 text-yellow-800 rounded-full hover:bg-yellow-200 transition-colors">
+                            <i class="fas fa-undo mr-1"></i>Sbanna
+                        </button>` : ''
+                    }
+                </div>
+            </div>
+        `).join('');
+        
+    } catch (error) {
+        console.error('Error refreshing deleted messages:', error);
+        document.getElementById('deleted-messages').innerHTML = `
+            <div class="text-center py-8 text-red-500">
+                <i class="fas fa-exclamation-triangle text-2xl mb-2"></i>
+                <p>Errore nel caricamento dei messaggi</p>
+            </div>
+        `;
+    }
+}
+
+// Refresh recent bans
+async function refreshBans() {
+    try {
+        const response = await fetch('/api/recent-bans');
+        const bans = await response.json();
+        
+        const container = document.getElementById('recent-bans');
+        
+        if (bans.length === 0) {
+            container.innerHTML = `
+                <div class="text-center py-8 text-gray-500">
+                    <i class="fas fa-shield-alt text-2xl mb-2"></i>
+                    <p>Nessun ban recente</p>
+                </div>
+            `;
+            return;
+        }
+        
+        container.innerHTML = bans.map(ban => `
+            <div class="border-l-4 border-orange-400 bg-orange-50 p-4 rounded-r-lg fade-in">
+                <div class="flex justify-between items-start mb-2">
+                    <div class="flex-1">
+                        <p class="text-sm font-medium text-orange-800">
+                            Utente ID: ${ban.user_id}
+                        </p>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <span class="text-xs text-orange-500">${formatTimestamp(ban.timestamp)}</span>
+                        <button onclick="showUnbanModal('${ban.user_id}')" 
+                                class="text-xs px-2 py-1 bg-red-100 text-red-800 rounded hover:bg-red-200 transition-colors">
+                            <i class="fas fa-undo mr-1"></i>Sbanna
+                        </button>
+                    </div>
+                </div>
+                <div>
+                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
+                        <i class="fas fa-ban mr-1"></i>
+                        ${ban.motivo || 'Motivo non specificato'}
+                    </span>
+                </div>
+            </div>
+        `).join('');
+        
+    } catch (error) {
+        console.error('Error refreshing bans:', error);
+        document.getElementById('recent-bans').innerHTML = `
+            <div class="text-center py-8 text-red-500">
+                <i class="fas fa-exclamation-triangle text-2xl mb-2"></i>
+                <p>Errore nel caricamento dei ban</p>
+            </div>
+        `;
+    }
+}
+
+// Unban modal functions
+function showUnbanModal(userId) {
+    currentUnbanUserId = userId;
+    document.getElementById('unban-user-id').textContent = userId;
+    document.getElementById('unban-modal').classList.remove('hidden');
+    
+    // Set up confirm button
+    document.getElementById('confirm-unban-btn').onclick = () => confirmUnban(userId);
+}
+
+function closeUnbanModal() {
+    document.getElementById('unban-modal').classList.add('hidden');
+    currentUnbanUserId = null;
+}
+
+async function confirmUnban(userId) {
+    const confirmBtn = document.getElementById('confirm-unban-btn');
+    const originalText = confirmBtn.innerHTML;
+    
+    confirmBtn.disabled = true;
+    confirmBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Sbannando...';
+    
+    try {
+        const response = await fetch(`/api/unban/${userId}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            }
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            showNotification(result.message, 'success');
+            closeUnbanModal();
+            // Refresh data to update the lists
+            setTimeout(() => {
+                refreshDeletedMessages();
+                refreshBans();
+            }, 1000);
+        } else {
+            showNotification(result.message, 'error');
+        }
+    } catch (error) {
+        console.error('Error unbanning user:', error);
+        showNotification('Errore nella comunicazione con il server', 'error');
+    } finally {
+        confirmBtn.disabled = false;
+        confirmBtn.innerHTML = originalText;
+    }
+}
+
+// Initialize dashboard
+document.addEventListener('DOMContentLoaded', function() {
+    // Initial data load
+    refreshData();
+    
+    // Set up auto-refresh every 30 seconds
+    startAutoRefresh(refreshData, 30000);
+    
+    // Set up more frequent status updates every 5 seconds
+    setInterval(updateBotStatus, 5000);
+    
+    // Close modal when clicking outside
+    document.getElementById('unban-modal').addEventListener('click', function(e) {
+        if (e.target === this) {
+            closeUnbanModal();
+        }
+    });
+    
+    // Close modal with Escape key
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape' && !document.getElementById('unban-modal').classList.contains('hidden')) {
+            closeUnbanModal();
+        }
+    });
+});
+
+// Clean up intervals when page is unloaded
+window.addEventListener('beforeunload', function() {
+    stopAutoRefresh();
+});
+</script>
+{% endblock %}

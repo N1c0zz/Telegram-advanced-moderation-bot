@@ -1,0 +1,508 @@
+{% extends "base.html" %}
+
+{% block title %}Configurazione - Bot Moderazione{% endblock %}
+
+{% block content %}
+<!-- Hidden config data for JavaScript -->
+<script type="application/json" id="config-data">{{ config | tojson }}</script>
+
+<div class="px-4 py-6 sm:px-0">
+    <!-- Header -->
+    <div class="mb-8">
+        <h1 class="text-3xl font-bold text-gray-900">Configurazione Bot</h1>
+        <p class="mt-2 text-gray-600">Modifica le impostazioni principali del bot di moderazione</p>
+    </div>
+
+    <!-- Configuration Form -->
+    <form id="config-form" class="space-y-8">
+        <!-- Basic Settings -->
+        <div class="bg-white shadow rounded-lg">
+            <div class="px-6 py-4 border-b border-gray-200">
+                <h2 class="text-lg font-medium text-gray-900">
+                    <i class="fas fa-cog mr-2"></i>
+                    Impostazioni Generali
+                </h2>
+            </div>
+            <div class="px-6 py-4 space-y-6">
+                <!-- Banned Words -->
+                <div>
+                    <label for="banned-words" class="block text-sm font-medium text-gray-700 mb-2">
+                        Parole Bannate
+                        <span class="text-gray-500">(una per riga)</span>
+                    </label>
+                    <textarea id="banned-words" rows="6" 
+                              class="mt-1 focus:ring-blue-500 focus:border-blue-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md"
+                              placeholder="Inserisci le parole o frasi da bannare, una per riga">{{ (config.banned_words or []) | join('\n') }}</textarea>
+                    <p class="mt-2 text-sm text-gray-500">
+                        Messaggi contenenti queste parole verranno automaticamente rimossi
+                    </p>
+                </div>
+
+                <!-- Exempt Users -->
+                <div>
+                    <label for="exempt-users" class="block text-sm font-medium text-gray-700 mb-2">
+                        Utenti Esenti (Admin)
+                        <span class="text-gray-500">(ID o username, uno per riga)</span>
+                    </label>
+                    <textarea id="exempt-users" rows="4" 
+                              class="mt-1 focus:ring-blue-500 focus:border-blue-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md"
+                              placeholder="Inserisci gli ID utente o username degli admin, uno per riga">{% for user in (config.exempt_users or []) %}{{ user }}
+{% endfor %}</textarea>
+                    <p class="mt-2 text-sm text-gray-500">
+                        Questi utenti non saranno soggetti alla moderazione automatica
+                    </p>
+                </div>
+
+                <!-- Allowed Languages -->
+                <div>
+                    <label for="allowed-languages" class="block text-sm font-medium text-gray-700 mb-2">
+                        Lingue Consentite
+                    </label>
+                    <div class="mt-1 flex flex-wrap gap-2">
+                        <label class="inline-flex items-center">
+                            <input type="checkbox" class="form-checkbox h-4 w-4 text-blue-600 rounded" 
+                                   value="italian" id="lang-italian"
+                                   {% if 'italian' in (config.allowed_languages or ['italian']) %}checked{% endif %}>
+                            <span class="ml-2 text-sm text-gray-700">Italiano</span>
+                        </label>
+                        <label class="inline-flex items-center">
+                            <input type="checkbox" class="form-checkbox h-4 w-4 text-blue-600 rounded" 
+                                   value="english" id="lang-english"
+                                   {% if 'english' in (config.allowed_languages or []) %}checked{% endif %}>
+                            <span class="ml-2 text-sm text-gray-700">Inglese</span>
+                        </label>
+                        <label class="inline-flex items-center">
+                            <input type="checkbox" class="form-checkbox h-4 w-4 text-blue-600 rounded" 
+                                   value="any" id="lang-any"
+                                   {% if 'any' in (config.allowed_languages or []) %}checked{% endif %}>
+                            <span class="ml-2 text-sm text-gray-700">Tutte le lingue</span>
+                        </label>
+                    </div>
+                    <p class="mt-2 text-sm text-gray-500">
+                        Messaggi in altre lingue verranno rimossi automaticamente
+                    </p>
+                </div>
+
+                <!-- First Messages Threshold -->
+                <div>
+                    <label for="first-messages-threshold" class="block text-sm font-medium text-gray-700 mb-2">
+                        Soglia Primi Messaggi
+                    </label>
+                    <input type="number" id="first-messages-threshold" min="1" max="10" 
+                           value="{{ config.first_messages_threshold or 3 }}"
+                           class="mt-1 focus:ring-blue-500 focus:border-blue-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md">
+                    <p class="mt-2 text-sm text-gray-500">
+                        Numero di messaggi iniziali per cui applicare controlli più rigidi
+                    </p>
+                </div>
+
+                <!-- Backup Interval -->
+                <div>
+                    <label for="backup-interval" class="block text-sm font-medium text-gray-700 mb-2">
+                        Intervallo Backup (giorni)
+                    </label>
+                    <input type="number" id="backup-interval" min="1" max="30" 
+                           value="{{ config.backup_interval_days or 7 }}"
+                           class="mt-1 focus:ring-blue-500 focus:border-blue-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md">
+                    <p class="mt-2 text-sm text-gray-500">
+                        Frequenza automatica dei backup dei dati
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Night Mode Settings -->
+        <div class="bg-white shadow rounded-lg">
+            <div class="px-6 py-4 border-b border-gray-200">
+                <h2 class="text-lg font-medium text-gray-900">
+                    <i class="fas fa-moon mr-2"></i>
+                    Modalità Notturna
+                </h2>
+            </div>
+            <div class="px-6 py-4 space-y-6">
+                <!-- Night Mode Enabled -->
+                <div class="flex items-center">
+                    <input type="checkbox" id="night-mode-enabled" 
+                           class="form-checkbox h-4 w-4 text-blue-600 rounded"
+                           {% if config.night_mode and config.night_mode.enabled != false %}checked{% elif not config.night_mode %}checked{% endif %}>
+                    <label for="night-mode-enabled" class="ml-2 text-sm font-medium text-gray-700">
+                        Abilita Modalità Notturna
+                    </label>
+                </div>
+
+                <!-- Night Mode Hours -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                        <label for="night-start-hour" class="block text-sm font-medium text-gray-700 mb-2">
+                            Orario Inizio
+                        </label>
+                        <input type="time" id="night-start-hour" 
+                               value="{{ config.night_mode.start_hour if config.night_mode else '23:00' }}"
+                               class="mt-1 focus:ring-blue-500 focus:border-blue-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md">
+                    </div>
+                    <div>
+                        <label for="night-end-hour" class="block text-sm font-medium text-gray-700 mb-2">
+                            Orario Fine
+                        </label>
+                        <input type="time" id="night-end-hour" 
+                               value="{{ config.night_mode.end_hour if config.night_mode else '07:00' }}"
+                               class="mt-1 focus:ring-blue-500 focus:border-blue-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md">
+                    </div>
+                </div>
+
+                <!-- Night Mode Groups -->
+                <div>
+                    <label for="night-mode-groups" class="block text-sm font-medium text-gray-700 mb-2">
+                        Gruppi Modalità Notturna
+                        <span class="text-gray-500">(ID gruppi, uno per riga)</span>
+                    </label>
+                    <textarea id="night-mode-groups" rows="4" 
+                              class="mt-1 focus:ring-blue-500 focus:border-blue-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md"
+                              placeholder="Inserisci gli ID dei gruppi per la modalità notturna, uno per riga">{% if config.night_mode and config.night_mode.night_mode_groups %}{% for group_id in config.night_mode.night_mode_groups %}{{ group_id }}
+{% endfor %}{% endif %}</textarea>
+                    <p class="mt-2 text-sm text-gray-500">
+                        Solo questi gruppi saranno affetti dalla modalità notturna
+                    </p>
+                </div>
+
+                <!-- Night Mode Messages -->
+                <div class="grid grid-cols-1 gap-6">
+                    <div>
+                        <label for="night-start-message" class="block text-sm font-medium text-gray-700 mb-2">
+                            Messaggio di Attivazione
+                        </label>
+                        <textarea id="night-start-message" rows="3" 
+                                  class="mt-1 focus:ring-blue-500 focus:border-blue-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md"
+                                  placeholder="Messaggio mostrato quando si attiva la modalità notturna">{{ config.night_mode.start_message if config.night_mode else '⛔ Il gruppo è attualmente in modalità notturna. L\'invio di messaggi è temporaneamente disabilitato fino alle {end_hour}.' }}</textarea>
+                        <p class="mt-1 text-xs text-gray-500">Usa {end_hour} per inserire l'orario di fine</p>
+                    </div>
+                </div>
+
+                <!-- Grace Period -->
+                <div>
+                    <label for="grace-period" class="block text-sm font-medium text-gray-700 mb-2">
+                        Periodo di Grazia (secondi)
+                    </label>
+                    <input type="number" id="grace-period" min="0" max="300" 
+                           value="{{ config.night_mode.grace_period_seconds if config.night_mode else 15 }}"
+                           class="mt-1 focus:ring-blue-500 focus:border-blue-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md">
+                    <p class="mt-2 text-sm text-gray-500">
+                        Tempo in cui i messaggi sono ancora permessi dopo l'attivazione
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <!-- CSV Settings -->
+        <div class="bg-white shadow rounded-lg">
+            <div class="px-6 py-4 border-b border-gray-200">
+                <h2 class="text-lg font-medium text-gray-900">
+                    <i class="fas fa-database mr-2"></i>
+                    Impostazioni Database CSV
+                </h2>
+            </div>
+            <div class="px-6 py-4 space-y-6">
+                <!-- CSV Enabled -->
+                <div class="flex items-center">
+                    <input type="checkbox" id="csv-enabled" 
+                           class="form-checkbox h-4 w-4 text-blue-600 rounded"
+                           {% if config.csv_enabled is defined and config.csv_enabled != false %}checked{% elif config.csv_enabled is not defined %}checked{% endif %}>
+                    <label for="csv-enabled" class="ml-2 text-sm font-medium text-gray-700">
+                        Abilita Salvataggio CSV
+                    </label>
+                </div>
+
+                <!-- CSV Directory -->
+                <div>
+                    <label for="csv-data-directory" class="block text-sm font-medium text-gray-700 mb-2">
+                        Directory Dati CSV
+                    </label>
+                    <input type="text" id="csv-data-directory" 
+                           value="{{ config.csv_data_directory or 'data/csv' }}"
+                           class="mt-1 focus:ring-blue-500 focus:border-blue-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md">
+                    <p class="mt-2 text-sm text-gray-500">
+                        Percorso dove salvare i file CSV dei dati
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Rules Command Settings -->
+        <div class="bg-white shadow rounded-lg">
+            <div class="px-6 py-4 border-b border-gray-200">
+                <h2 class="text-lg font-medium text-gray-900">
+                    <i class="fas fa-book mr-2"></i>
+                    Comando /rules
+                </h2>
+            </div>
+            <div class="px-6 py-4 space-y-6">
+                <!-- Rules Command Enabled -->
+                <div class="flex items-center">
+                    <input type="checkbox" id="rules-command-enabled" 
+                           class="form-checkbox h-4 w-4 text-blue-600 rounded"
+                           {% if config.rules_command_enabled is defined and config.rules_command_enabled != false %}checked{% elif config.rules_command_enabled is not defined %}checked{% endif %}>
+                    <label for="rules-command-enabled" class="ml-2 text-sm font-medium text-gray-700">
+                        Abilita Comando /rules
+                    </label>
+                </div>
+
+                <!-- Rules Message -->
+                <div>
+                    <label for="rules-message" class="block text-sm font-medium text-gray-700 mb-2">
+                        Messaggio Regole
+                    </label>
+                    <textarea id="rules-message" rows="8" 
+                              class="mt-1 focus:ring-blue-500 focus:border-blue-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md"
+                              placeholder="Inserisci il messaggio con le regole del gruppo">{{ config.rules_message or '📋 **LINEE GUIDA DEL GRUPPO**\n\n' }}</textarea>
+                    <p class="mt-2 text-sm text-gray-500">
+                        Questo messaggio verrà inviato in privato quando un utente usa /rules
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Save Button -->
+        <div class="flex justify-end space-x-4">
+            <button type="button" onclick="resetForm()" 
+                    class="px-6 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                <i class="fas fa-undo mr-2"></i>
+                Ripristina
+            </button>
+            <button type="submit" id="save-btn"
+                    class="px-6 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                <i class="fas fa-save mr-2"></i>
+                Salva Configurazione
+            </button>
+        </div>
+    </form>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Store original config for reset functionality
+let originalConfig;
+
+try {
+    // Parse config data from server
+    const configData = document.getElementById('config-data').textContent;
+    originalConfig = JSON.parse(configData);
+} catch (error) {
+    console.warn('Error parsing config data, using defaults:', error);
+    // Fallback if config parsing fails
+    originalConfig = {
+        banned_words: [],
+        exempt_users: [],
+        allowed_languages: ['italian'],
+        first_messages_threshold: 3,
+        backup_interval_days: 7,
+        night_mode: {
+            enabled: true,
+            start_hour: '23:00',
+            end_hour: '07:00',
+            start_message: '⛔ Il gruppo è attualmente in modalità notturna.',
+            grace_period_seconds: 15,
+            night_mode_groups: []
+        },
+        csv_enabled: true,
+        csv_data_directory: 'data/csv',
+        rules_command_enabled: true,
+        rules_message: '📋 **LINEE GUIDA DEL GRUPPO**\n\n'
+    };
+}
+
+// Form submission
+document.getElementById('config-form').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    
+    const saveBtn = document.getElementById('save-btn');
+    const originalText = saveBtn.innerHTML;
+    
+    saveBtn.disabled = true;
+    saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Salvataggio...';
+    
+    try {
+        const configData = collectFormData();
+        
+        const response = await fetch('/api/config', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(configData)
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            showNotification('Configurazione salvata con successo!', 'success');
+            // Update original config for future resets
+            originalConfig = configData;
+        } else {
+            showNotification(result.message || 'Errore nel salvataggio', 'error');
+        }
+    } catch (error) {
+        console.error('Error saving config:', error);
+        showNotification('Errore nella comunicazione con il server', 'error');
+    } finally {
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = originalText;
+    }
+});
+
+// Collect form data
+function collectFormData() {
+    const config = {};
+    
+    // Basic settings
+    config.banned_words = document.getElementById('banned-words').value
+        .split('\n')
+        .map(word => word.trim())
+        .filter(word => word.length > 0);
+    
+    config.exempt_users = document.getElementById('exempt-users').value
+        .split('\n')
+        .map(user => {
+            user = user.trim();
+            // Try to convert to number if it's numeric
+            const num = parseInt(user);
+            return isNaN(num) ? user : num;
+        })
+        .filter(user => user !== '' && user !== 0);
+    
+    // Allowed languages
+    const allowedLanguages = [];
+    if (document.getElementById('lang-italian').checked) allowedLanguages.push('italian');
+    if (document.getElementById('lang-english').checked) allowedLanguages.push('english');
+    if (document.getElementById('lang-any').checked) allowedLanguages.push('any');
+    config.allowed_languages = allowedLanguages;
+    
+    config.first_messages_threshold = parseInt(document.getElementById('first-messages-threshold').value);
+    config.backup_interval_days = parseInt(document.getElementById('backup-interval').value);
+    
+    // Night mode settings
+    config.night_mode = {
+        enabled: document.getElementById('night-mode-enabled').checked,
+        start_hour: document.getElementById('night-start-hour').value,
+        end_hour: document.getElementById('night-end-hour').value,
+        start_message: document.getElementById('night-start-message').value,
+        grace_period_seconds: parseInt(document.getElementById('grace-period').value),
+        night_mode_groups: document.getElementById('night-mode-groups').value
+            .split('\n')
+            .map(id => parseInt(id.trim()))
+            .filter(id => !isNaN(id))
+    };
+    
+    // CSV settings
+    config.csv_enabled = document.getElementById('csv-enabled').checked;
+    config.csv_data_directory = document.getElementById('csv-data-directory').value;
+    
+    // Rules command settings
+    config.rules_command_enabled = document.getElementById('rules-command-enabled').checked;
+    config.rules_message = document.getElementById('rules-message').value;
+    
+    return config;
+}
+
+// Reset form to original values
+function resetForm() {
+    if (confirm('Sei sicuro di voler ripristinare tutte le modifiche?')) {
+        populateForm(originalConfig);
+        showNotification('Configurazione ripristinata', 'info');
+    }
+}
+
+// Populate form with config data
+function populateForm(config) {
+    // Basic settings
+    document.getElementById('banned-words').value = (config.banned_words || []).join('\n');
+    document.getElementById('exempt-users').value = (config.exempt_users || []).join('\n');
+    
+    // Languages
+    document.getElementById('lang-italian').checked = (config.allowed_languages || ['italian']).includes('italian');
+    document.getElementById('lang-english').checked = (config.allowed_languages || []).includes('english');
+    document.getElementById('lang-any').checked = (config.allowed_languages || []).includes('any');
+    
+    document.getElementById('first-messages-threshold').value = config.first_messages_threshold || 3;
+    document.getElementById('backup-interval').value = config.backup_interval_days || 7;
+    
+    // Night mode
+    if (config.night_mode) {
+        document.getElementById('night-mode-enabled').checked = config.night_mode.enabled !== false;
+        document.getElementById('night-start-hour').value = config.night_mode.start_hour || '23:00';
+        document.getElementById('night-end-hour').value = config.night_mode.end_hour || '07:00';
+        document.getElementById('night-start-message').value = config.night_mode.start_message || '';
+        document.getElementById('grace-period').value = config.night_mode.grace_period_seconds || 15;
+        document.getElementById('night-mode-groups').value = (config.night_mode.night_mode_groups || []).join('\n');
+    }
+    
+    // CSV settings
+    document.getElementById('csv-enabled').checked = config.csv_enabled !== false;
+    document.getElementById('csv-data-directory').value = config.csv_data_directory || 'data/csv';
+    
+    // Rules command
+    document.getElementById('rules-command-enabled').checked = config.rules_command_enabled !== false;
+    document.getElementById('rules-message').value = config.rules_message || '';
+}
+
+// Auto-save indication
+let formChanged = false;
+const formElements = document.querySelectorAll('#config-form input, #config-form textarea, #config-form select');
+
+formElements.forEach(element => {
+    element.addEventListener('change', () => {
+        formChanged = true;
+        updateSaveButtonState();
+    });
+});
+
+function updateSaveButtonState() {
+    const saveBtn = document.getElementById('save-btn');
+    if (formChanged) {
+        saveBtn.classList.remove('bg-blue-600', 'hover:bg-blue-700');
+        saveBtn.classList.add('bg-yellow-600', 'hover:bg-yellow-700');
+        saveBtn.innerHTML = '<i class="fas fa-exclamation-triangle mr-2"></i>Salva Modifiche';
+    }
+}
+
+// Warn before leaving if there are unsaved changes
+window.addEventListener('beforeunload', function(e) {
+    if (formChanged) {
+        e.preventDefault();
+        e.returnValue = '';
+        return 'Ci sono modifiche non salvate. Sei sicuro di voler uscire?';
+    }
+});
+
+// Mark as saved after successful save
+document.getElementById('config-form').addEventListener('submit', function() {
+    setTimeout(() => {
+        formChanged = false;
+        const saveBtn = document.getElementById('save-btn');
+        saveBtn.classList.remove('bg-yellow-600', 'hover:bg-yellow-700');
+        saveBtn.classList.add('bg-blue-600', 'hover:bg-blue-700');
+        saveBtn.innerHTML = '<i class="fas fa-save mr-2"></i>Salva Configurazione';
+    }, 2000);
+});
+
+// Language checkbox logic
+document.getElementById('lang-any').addEventListener('change', function() {
+    if (this.checked) {
+        document.getElementById('lang-italian').checked = false;
+        document.getElementById('lang-english').checked = false;
+    }
+});
+
+document.getElementById('lang-italian').addEventListener('change', function() {
+    if (this.checked) {
+        document.getElementById('lang-any').checked = false;
+    }
+});
+
+document.getElementById('lang-english').addEventListener('change', function() {
+    if (this.checked) {
+        document.getElementById('lang-any').checked = false;
+    }
+});
+</script>
+{% endblock %}
