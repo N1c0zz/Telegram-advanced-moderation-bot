@@ -105,8 +105,7 @@ class AdvancedModerationBotLogic: # Rinominato per chiarezza rispetto a Telegram
     @functools.lru_cache(maxsize=500)
     def contains_banned_word(self, text: str) -> bool:
         """
-        Filtro meccanico ULTRA-MINIMALE - blocca solo spam ovvio.
-        Tutto il resto passa a OpenAI.
+        Filtro meccanico MIGLIORATO - blocca anche spam mascherato.
         """
         normalized_text = self.normalize_text(text)
         if not normalized_text:
@@ -122,14 +121,44 @@ class AdvancedModerationBotLogic: # Rinominato per chiarezza rispetto a Telegram
             self.logger.info(f"MATCH filtro diretto: {cyrillic_count} caratteri cirillici in '{text[:50]}...'")
             return True
 
-        # SOLO spam ovvio e inequivocabile
-        minimal_patterns = [
-            # Vendita esplicita con prezzo E contatto privato (tutti insieme)
-            r"(?:vendo|offro).*[0-9]+\s*(?:euro|€).*(?:scriv|contatt|privat|whatsapp|telegram)",
+        # NUOVO: Pattern per spam mascherato di panieri/materiale
+        masked_panieri_spam_patterns = [
+            # "Chi cerca panieri..." + invito contatto
+            r"chi\s+cerc[ao]\s+panier.*(?:scriv|contatt|privat)",
+            r"cerc[ao]\s+panier.*(?:scriv|contatt|privat)",
             
-            # Account spam noti
+            # "Ho materiale/panieri..." + invito contatto  
+            r"ho\s+(?:material|panier).*(?:scriv|contatt|privat)",
+            r"(?:material|panier).*(?:complet|aggiornat).*(?:scriv|contatt|privat)",
+            
+            # "Panieri disponibili..." + contatto
+            r"panier.*disponibil.*(?:scriv|contatt|privat|interessat)",
+            r"panier.*(?:2024|2025|aggiornat).*(?:scriv|contatt|privat|interessat)",
+            
+            # Pattern generici invito contatto per materiale
+            r"(?:scriv|contatt).*(?:per|sui)\s+panier",
+            r"panier.*(?:scriv|contatt).*(?:privat|dm)",
+            r"material.*(?:scriv|contatt).*(?:privat|dm)",
+            
+            # Formule tipiche spam mascherato
+            r"interessat.*(?:scriv|contatt)",
+            r"(?:scriv|contatt).*(?:per|chi)\s+(?:material|panier|appunt)",
+            r"(?:material|panier).*(?:chi|per).*(?:scriv|contatt)",
+            
+            # Account spam noti (esistenti)
             r"@panieriunipegasomercatorum",
             r"@unitelematica",
+        ]
+
+        for pattern in masked_panieri_spam_patterns:
+            if re.search(pattern, normalized_text, re.IGNORECASE):
+                self.logger.info(f"MATCH filtro diretto (spam mascherato): pattern '{pattern}' in '{text}'")
+                return True
+
+        # Pattern spam ovvio esistenti (mantieni quelli originali)
+        obvious_spam_patterns = [
+            # Vendita esplicita con prezzo E contatto privato (tutti insieme)
+            r"(?:vendo|offro).*[0-9]+\s*(?:euro|€).*(?:scriv|contatt|privat|whatsapp|telegram)",
             
             # Scam ovvi
             r"guadagni?\s+(?:facili|garantiti|sicuri)",
@@ -143,7 +172,7 @@ class AdvancedModerationBotLogic: # Rinominato per chiarezza rispetto a Telegram
             r"kontakt",    # контакт translitterato
         ]
 
-        for pattern in minimal_patterns:
+        for pattern in obvious_spam_patterns:
             if re.search(pattern, normalized_text, re.IGNORECASE):
                 self.logger.info(f"MATCH filtro diretto: pattern '{pattern}' in '{normalized_text}'")
                 return True
@@ -382,6 +411,16 @@ class AdvancedModerationBotLogic: # Rinominato per chiarezza rispetto a Telegram
             "    • Promozioni di servizi di consulenza per investimenti o trading\n"
             "    • Offerte di guadagno attraverso criptovalute o forex\n"
             "    • Messaggi che condividono link a gruppi o bot per investimenti\n\n"
+            "ATTENZIONE SPAM MASCHERATO DI PANIERI (SEMPRE INAPPROPRIATO):\n"
+            "❌ Qualsiasi messaggio che invita al contatto privato per panieri/materiale È SEMPRE INAPPROPRIATO, anche senza menzione di prezzo:\n"
+            "    • Ciao, chi cerca panieri aggiornati mi scriva\n"
+            "    • Ho materiale completo, contattatemi\n" 
+            "    • Panieri 2024 disponibili, interessati in privato\n"
+            "    • Chi vuole i panieri mi contatti\n"
+            "    • Ho tutto il materiale, scrivetemi\n"
+            "    • Panieri completi, contattatemi per info\n"
+            "❌ REGOLA: Se qualcuno offre panieri/materiale E chiede di essere contattato privatamente = INAPPROPRIATO: SI\n"
+            "❌ Anche frasi come 'mi scriva', 'contattatemi', 'interessati in privato' sono SEMPRE sospette se legate a panieri\n\n"
             
             "3️⃣ CASI SEMPRE APPROPRIATI (non marcare mai come inappropriati):\n"
             "✅ Richieste di materiale didattico tra studenti:\n"

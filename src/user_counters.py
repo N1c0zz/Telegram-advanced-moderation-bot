@@ -1,18 +1,18 @@
-# Miglioramenti suggeriti per user_counters.py
-
 import json
 import os
 import threading
 from datetime import datetime, timedelta
 from typing import Dict, Tuple, Optional
+import hashlib
 import logging
 
 class UserMessageCounters:
     """Gestisce i contatori di messaggi per utente/gruppo in un file JSON locale."""
     
     def __init__(self, file_path: str = None, 
-                 cleanup_days: int = 90, auto_save_interval: int = 5,
-                 integrity_check: bool = True):  # NUOVO parametro
+             cleanup_days: int = 90, auto_save_interval: int = 5,
+             integrity_check: bool = True, 
+             logger: Optional[logging.Logger] = None):  # NUOVO parametro
         # Determina il percorso del file se non specificato
         if file_path is None:
             current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -20,25 +20,28 @@ class UserMessageCounters:
             file_path = os.path.join(repo_root, "data", "user_message_counts.json")
         
         self.file_path = file_path
-        self.backup_path = f"{file_path}.backup"  # NUOVO: path backup
-        self.checksum_path = f"{file_path}.checksum"  # NUOVO: path checksum
+        self.backup_path = f"{file_path}.backup"
+        self.checksum_path = f"{file_path}.checksum"
         self.cleanup_days = cleanup_days
         self.auto_save_interval = auto_save_interval
-        self.integrity_check = integrity_check  # NUOVO: flag controllo integrità
+        self.integrity_check = integrity_check
         self.lock = threading.Lock()  
-        self.logger = logging.getLogger("UserCounters")
+        
+        # CORREZIONE: Usa il logger passato dal bot, non uno nuovo
+        self.logger = logger if logger is not None else logging.getLogger("UserCounters")
+        
         self._unsaved_changes = 0
         
         # Crea directory se non esiste
         os.makedirs(os.path.dirname(file_path), exist_ok=True)
         
-        # NUOVO: Controllo integrità all'avvio
+        # Controllo integrità all'avvio (ora usa il logger corretto)
         self._startup_integrity_check()
         
         # Carica dati esistenti
         self.data = self._load_data()
         
-        # NUOVO: Log stato all'avvio
+        # Log stato all'avvio
         self._log_startup_status()
         
         # Cleanup iniziale
