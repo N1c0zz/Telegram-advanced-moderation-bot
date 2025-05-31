@@ -28,10 +28,14 @@ class AdvancedModerationBotLogic: # Rinominato per chiarezza rispetto a Telegram
     def __init__(self, config_manager: ConfigManager, logger: logging.Logger): # Rimossa dipendenza da SheetsManager
         self.config_manager = config_manager
         self.logger = logger
-        # self.sheets_manager = sheets_manager # Non usato direttamente in questa classe
         
         self.banned_words: List[str] = self.config_manager.get('banned_words', [])
+        # NUOVA: Carica whitelist
+        self.whitelist_words: List[str] = self.config_manager.get('whitelist_words', [])
         self.allowed_languages: List[str] = self.config_manager.get('allowed_languages', ["italian"])
+        
+        # Log della configurazione whitelist
+        self.logger.info(f"Whitelist caricata con {len(self.whitelist_words)} parole: {self.whitelist_words}")
         
         self.char_map: Dict[str, str] = {"0": "o", "1": "i", "3": "e", "4": "a", "5": "s", "7": "t"}
         self.analysis_cache = MessageAnalysisCache(cache_size=1000)
@@ -53,6 +57,29 @@ class AdvancedModerationBotLogic: # Rinominato per chiarezza rispetto a Telegram
         else:
             self.openai_client = None
             self.logger.warning("OPENAI_API_KEY non trovato. L'analisi AI non sarà disponibile.")
+
+    @functools.lru_cache(maxsize=200)
+    def contains_whitelist_word(self, text: str) -> bool:
+        """
+        Verifica se il messaggio contiene parole della whitelist.
+        Se contiene almeno una parola della whitelist, il messaggio viene auto-approvato.
+        """
+        if not self.whitelist_words:
+            return False
+        
+        # Normalizza il testo per il confronto
+        normalized_text = self.normalize_text(text)
+        if not normalized_text:
+            return False
+        
+        # Verifica se qualsiasi parola della whitelist è presente
+        for whitelist_word in self.whitelist_words:
+            normalized_whitelist_word = whitelist_word.lower().strip()
+            if normalized_whitelist_word in normalized_text:
+                self.logger.debug(f"Whitelist match: '{whitelist_word}' trovata in '{text[:50]}...'")
+                return True
+        
+        return False
 
     def get_stats(self) -> Dict[str, Any]:
         """Restituisce le statistiche di analisi dei messaggi."""
@@ -106,13 +133,57 @@ class AdvancedModerationBotLogic: # Rinominato per chiarezza rispetto a Telegram
     def contains_banned_word(self, text: str) -> bool:
         """
         Filtro meccanico MIGLIORATO - blocca anche spam mascherato.
+        CORREZIONE: Migliorato per rilevare correttamente le parole bannate.
         """
+        if not text or not text.strip():
+            return False
+        
+        # DEBUG: Log del testo originale
+        self.logger.debug(f"Filtro diretto - Testo originale: '{text}'")
+        
+        # ===== CONTROLLO 1: PAROLE BANNATE ESATTE (PRIMA DELLA NORMALIZZAZIONE) =====
+        text_lower = text.lower()
+        
+        # Controllo diretto su parole bannate dalla configurazione
+        for banned_word in self.banned_words:
+            banned_word_lower = banned_word.lower().strip()
+            if banned_word_lower in text_lower:
+                self.logger.info(f"MATCH filtro diretto: parola bannata '{banned_word}' trovata in '{text[:50]}...'")
+                return True
+        
+        # ===== CONTROLLO 2: LINK TELEGRAM ESTERNI + MATERIALE =====
+        # Pattern per rilevare link telegram con pattern di vendita/offerta materiale
+        telegram_link_patterns = [
+            r'(?:https?://)?(?:t\.me|telegram\.me)/\w+',  # Link t.me/canale
+            r'@\w+',  # Username telegram
+        ]
+        
+        # Parole che indicano offerta/vendita di materiale didattico
+        material_offer_words = [
+            'panieri', 'riassunti', 'appunti', 'materiale', 'slides', 'dispense',
+            'tesi', 'esami', 'soluzioni', 'quiz', 'test', 'simulazioni'
+        ]
+        
+        # Parole che indicano invito/promozione
+        invitation_words = [
+            'iscriversi', 'iscrivetevi', 'entrate', 'joinare', 'accedere', 'accesso',
+            'canale', 'gruppo', 'link', 'qui', 'sotto', 'sopra', 'clicca', 'segui'
+        ]
+        
+        # Se contiene link telegram + materiale + invito = SPAM
+        has_telegram_link = any(re.search(pattern, text_lower, re.IGNORECASE) for pattern in telegram_link_patterns)
+        has_material_offer = any(word in text_lower for word in material_offer_words)
+        has_invitation = any(word in text_lower for word in invitation_words)
+        
+        if has_telegram_link and has_material_offer and has_invitation:
+            self.logger.info(f"MATCH filtro diretto: link Telegram + offerta materiale + invito in '{text[:50]}...'")
+            return True
+        
+        # ===== CONTROLLO 3: ALFABETI NON-LATINI =====
         normalized_text = self.normalize_text(text)
         if not normalized_text:
             return False
-
-        # DEBUG: Log del testo normalizzato
-        self.logger.debug(f"Filtro diretto - Testo originale: '{text}'")
+        
         self.logger.debug(f"Filtro diretto - Testo normalizzato: '{normalized_text}'")
 
         # Test rapido per caratteri cirillici PRIMA della normalizzazione
@@ -121,7 +192,7 @@ class AdvancedModerationBotLogic: # Rinominato per chiarezza rispetto a Telegram
             self.logger.info(f"MATCH filtro diretto: {cyrillic_count} caratteri cirillici in '{text[:50]}...'")
             return True
 
-        # NUOVO: Pattern per spam mascherato di panieri/materiale
+        # ===== CONTROLLO 4: PATTERN SPAM MASCHERATO =====
         masked_panieri_spam_patterns = [
             # "Chi cerca panieri..." + invito contatto
             r"chi\s+cerc[ao]\s+panier.*(?:scriv|contatt|privat)",
@@ -145,6 +216,12 @@ class AdvancedModerationBotLogic: # Rinominato per chiarezza rispetto a Telegram
             r"(?:scriv|contatt).*(?:per|chi)\s+(?:material|panier|appunt)",
             r"(?:material|panier).*(?:chi|per).*(?:scriv|contatt)",
             
+            # NUOVO: Pattern per vendita/offerta con link esterni
+            r"vendita.*(?:panier|riassunt|material).*(?:t\.me|telegram|canale)",
+            r"(?:panier|riassunt|material).*vendita.*(?:t\.me|telegram|canale)",
+            r"affidatevi.*(?:unico|solo).*canale.*(?:panier|riassunt|material)",
+            r"canale.*(?:ufficiale|preposto).*(?:vendita|offerta).*(?:panier|riassunt)",
+            
             # Account spam noti (esistenti)
             r"@panieriunipegasomercatorum",
             r"@unitelematica",
@@ -155,9 +232,9 @@ class AdvancedModerationBotLogic: # Rinominato per chiarezza rispetto a Telegram
                 self.logger.info(f"MATCH filtro diretto (spam mascherato): pattern '{pattern}' in '{text}'")
                 return True
 
-        # Pattern spam ovvio esistenti (mantieni quelli originali)
+        # ===== CONTROLLO 5: SPAM OVVIO =====
         obvious_spam_patterns = [
-            # Vendita esplicita con prezzo E contatto privato (tutti insieme)
+            # Vendita esplicita con prezzo E contatto privato
             r"(?:vendo|offro).*[0-9]+\s*(?:euro|€).*(?:scriv|contatt|privat|whatsapp|telegram)",
             
             # Scam ovvi
@@ -243,87 +320,160 @@ class AdvancedModerationBotLogic: # Rinominato per chiarezza rispetto a Telegram
             return None # Fallback a non rilevato
 
     def is_language_disallowed(self, text: str) -> bool:
-        """Determina se la lingua del messaggio non è tra quelle consentite."""
+        """
+        Determina se la lingua del messaggio non è tra quelle consentite.
+        LOGICA MIGLIORATA per ridurre drasticamente i falsi positivi su italiano.
+        """
         if not self.allowed_languages or "any" in self.allowed_languages:
             return False
 
-        # PRIMO: Controllo rapido alfabeti non latini (PRIMA di langdetect)
-        cyrillic_chars = sum(1 for char in text if '\u0400' <= char <= '\u04FF' or '\u0500' <= char <= '\u052F')
-        arabic_chars = sum(1 for char in text if '\u0600' <= char <= '\u06FF')
-        chinese_chars = sum(1 for char in text if '\u4e00' <= char <= '\u9fff')
+        clean_text = text.strip()
+        if not clean_text:
+            return False
+
+        self.logger.debug(f"🔍 Analisi lingua per: '{clean_text}'")
+
+        # ===== CONTROLLO 1: ALFABETI CHIARAMENTE NON-LATINI (PRIORITÀ MASSIMA) =====
+        cyrillic_chars = sum(1 for char in clean_text if '\u0400' <= char <= '\u04FF' or '\u0500' <= char <= '\u052F')
+        arabic_chars = sum(1 for char in clean_text if '\u0600' <= char <= '\u06FF') 
+        chinese_chars = sum(1 for char in clean_text if '\u4e00' <= char <= '\u9fff')
         
-        total_alpha_chars = len([c for c in text if c.isalpha()])
+        total_alpha_chars = len([c for c in clean_text if c.isalpha()])
         
         if total_alpha_chars > 0:
             non_latin_ratio = (cyrillic_chars + arabic_chars + chinese_chars) / total_alpha_chars
-            if non_latin_ratio > 0.3:  # Se più del 30% sono caratteri non latini
-                self.logger.info(f"Lingua non consentita: {non_latin_ratio:.2%} caratteri non latini in '{text[:50]}...'")
+            if non_latin_ratio > 0.4:  # Soglia aumentata da 0.3 a 0.4
+                self.logger.info(f"❌ Lingua non consentita: {non_latin_ratio:.2%} caratteri non-latini in '{clean_text[:50]}...'")
                 return True
 
-        # NUOVO: Controllo parole inglesi comuni PRIMA di langdetect
-        if total_alpha_chars >= 2:  # Almeno 2 lettere per questo controllo
-            text_lower = text.lower().strip()
+        # ===== CONTROLLO 2: WHITELIST ITALIANA ESTESA (NUOVO) =====
+        # Lista molto più ampia di parole/pattern chiaramente italiani
+        italian_indicators = {
+            # Parole comuni italiane
+            'ciao', 'buongiorno', 'buonasera', 'buonanotte', 'salve', 'arrivederci',
+            'grazie', 'prego', 'scusa', 'scusate', 'perfetto', 'bene', 'male', 'così',
+            'si', 'sì', 'no', 'ok', 'okay', 'va', 'sono', 'ho', 'hai', 'ha', 'abbiamo',
+            'oggi', 'ieri', 'domani', 'quando', 'dove', 'come', 'cosa', 'chi', 'perché',
+            'questo', 'quello', 'questi', 'quelli', 'che', 'con', 'per', 'del', 'della',
+            'non', 'più', 'molto', 'poco', 'tutto', 'niente', 'anche', 'ancora', 'già',
             
-            # Lista parole inglesi comuni che NON dovrebbero passare
-            common_english_words = [
-                'hello', 'hi', 'hey', 'how', 'are', 'you', 'what', 'where', 'when', 
-                'why', 'who', 'can', 'could', 'would', 'should', 'will', 'shall',
-                'good', 'bad', 'nice', 'great', 'thank', 'thanks', 'please', 'sorry',
-                'yes', 'no', 'okay', 'ok', 'welcome', 'bye', 'goodbye', 'see',
-                'the', 'and', 'but', 'for', 'with', 'this', 'that', 'there',
-                'have', 'has', 'had', 'was', 'were', 'been', 'being', 'make',
-                'made', 'get', 'got', 'take', 'took', 'come', 'came', 'go', 'went'
-            ]
+            # Parole universitarie/contesto
+            'università', 'esame', 'esami', 'professore', 'prof', 'crediti', 'corso', 'corsi',
+            'laurea', 'triennale', 'magistrale', 'dottorato', 'facoltà', 'appunti', 
+            'panieri', 'lezioni', 'tesi', 'sessione', 'matricola', 'ateneo', 'dipartimento',
+            'cattedra', 'semestre', 'frequenza', 'iscrizione', 'slides', 'slide',
             
-            # Controlla se il messaggio è composto principalmente da parole inglesi
-            words_in_message = text_lower.replace('.', '').replace('!', '').replace('?', '').split()
-            if words_in_message:
-                english_word_count = sum(1 for word in words_in_message if word in common_english_words)
-                english_ratio = english_word_count / len(words_in_message)
-                
-                # Se più del 50% delle parole sono inglesi comuni, blocca
-                if english_ratio > 0.5:
-                    self.logger.info(f"Rilevato messaggio prevalentemente inglese: {english_ratio:.2%} parole inglesi comuni in '{text}'")
-                    return True
-
-        # SECONDO: Per testi lunghi, usa langdetect
-        if total_alpha_chars < 8:  # Mantieni soglia originale per langdetect
+            # Espressioni colloquiali italiane (NUOVO)
+            'boh', 'mah', 'beh', 'allora', 'quindi', 'però', 'infatti', 'comunque',
+            'speriamo', 'magari', 'forse', 'davvero', 'veramente', 'sicuramente',
+            'attendiamo', 'aspettiamo', 'vediamo', 'diciamo', 'facciamo', 'andiamo',
+            
+            # Forme verbali comuni (NUOVO) 
+            'è', 'sono', 'siamo', 'sarà', 'sarebbe', 'potrebbe', 'dovrebbe', 'farebbe',
+            'riuscite', 'riesco', 'riesci', 'posso', 'puoi', 'può', 'possiamo', 'potete',
+            'voglio', 'vuoi', 'vuole', 'vogliamo', 'volete', 'vogliono',
+            
+            # Termini tecnici italianizzati (NUOVO)
+            'link', 'meet', 'zoom', 'teams', 'chat', 'gruppo', 'canale', 'messaggio',
+            'whatsapp', 'telegram', 'email', 'file', 'pdf', 'video', 'audio'
+        }
+        
+        # Converti testo in parole per analisi
+        words_in_text = set(word.lower().strip('.,!?;:()[]{}') for word in clean_text.lower().split())
+        
+        # Se almeno UNA parola è chiaramente italiana, consideriamo il testo italiano
+        italian_words_found = words_in_text.intersection(italian_indicators)
+        if italian_words_found:
+            self.logger.debug(f"✅ Italiano confermato da parole: {list(italian_words_found)} in '{clean_text}'")
             return False
+        
+        # ===== CONTROLLO 3: PATTERN ITALIANI (MORFOLOGIA) =====
+        # Riconosce pattern tipici italiani anche su parole non in whitelist
+        italian_patterns = [
+            r'\b\w+mente\b',      # avverbi: certamente, probabilmente, etc
+            r'\b\w+zione\b',      # sostantivi: informazione, situazione, etc  
+            r'\b\w+zioni\b',      # plurali: informazioni, situazioni, etc
+            r'\b\w+aggio\b',      # sostantivi: passaggio, messaggio, etc
+            r'\b\w+aggio\b',      # sostantivi: passaggio, messaggio, etc
+            r'\b\w+are\b',        # infiniti: andare, fare, etc (limitato per evitare false positive)
+            r'\b\w+amo\b',        # prima persona plurale: andiamo, facciamo, etc
+            r'\b\w+ete\b',        # seconda persona plurale: andate, fate, etc  
+            r'\b\w+ano\b',        # terza persona plurale: vanno, fanno, etc
+            r'\b\w+oso\b',        # aggettivi: famoso, pericoloso, etc
+            r'\b\w+osa\b',        # aggettivi femminili: famosa, pericolosa, etc
+            r'\b\w+osi\b',        # aggettivi plurali maschili
+            r'\b\w+ose\b',        # aggettivi plurali femminili
+        ]
+        
+        import re
+        for pattern in italian_patterns:
+            if re.search(pattern, clean_text.lower(), re.IGNORECASE):
+                matches = re.findall(pattern, clean_text.lower(), re.IGNORECASE)
+                self.logger.debug(f"✅ Italiano confermato da pattern '{pattern}': {matches} in '{clean_text}'")
+                return False
 
-        detected_lang_code = self.detect_language(text)
-        if detected_lang_code:
-            # Mappa le lingue consentite ai codici ISO
-            lang_mapping = {
-                'italian': 'it',
-                'it': 'it'
-            }
+        # ===== CONTROLLO 4: ENGLISH-ONLY BLOCKING (MIGLIORATO) =====
+        # Solo se il testo è INTERAMENTE in inglese senza mescolanza italiana
+        common_english_only = {
+            'hello', 'hi', 'hey', 'how', 'are', 'you', 'what', 'where', 'when', 
+            'why', 'who', 'can', 'could', 'would', 'should', 'will', 'shall',
+            'good', 'bad', 'nice', 'great', 'thank', 'thanks', 'please', 'sorry',
+            'yes', 'no', 'okay', 'welcome', 'bye', 'goodbye', 'see', 'get', 'go',
+            'the', 'and', 'but', 'for', 'with', 'this', 'that', 'there', 'here',
+            'have', 'has', 'had', 'was', 'were', 'been', 'being', 'make', 'made',
+            'take', 'took', 'come', 'came', 'went', 'going', 'do', 'does', 'did'
+        }
+        
+        if len(words_in_text) >= 2:  # Solo per testi con almeno 2 parole
+            english_words_found = words_in_text.intersection(common_english_only)
+            english_ratio = len(english_words_found) / len(words_in_text)
             
-            allowed_codes = []
-            for lang in self.allowed_languages:
-                mapped = lang_mapping.get(lang.lower(), lang.lower())
-                allowed_codes.append(mapped)
-            
-            if detected_lang_code not in allowed_codes:
-                # CONTROLLO SPECIALE: Se rileva come non-italiano ma contiene parole chiaramente italiane
-                italian_university_words = [
-                    'università', 'esame', 'professore', 'crediti', 'corso', 'laurea', 
-                    'triennale', 'magistrale', 'dottorato', 'facoltà', 'appunti', 
-                    'panieri', 'lezioni', 'tesi', 'sessione', 'matricola', 'ateneo',
-                    'dipartimento', 'cattedra', 'semestre', 'frequenza', 'iscrizione',
-                    'buongiorno', 'buonasera', 'grazie', 'prego', 'ancora', 'non',
-                    'oggi', 'domani', 'quando', 'dove', 'come', 'perché', 'cosa'
-                ]
-                
-                text_lower = text.lower()
-                italian_words_found = [word for word in italian_university_words if word in text_lower]
-                
-                if italian_words_found:
-                    self.logger.info(f"Langdetect rileva '{detected_lang_code}' ma trovate parole italiane: {italian_words_found} in '{text}' - PERMESSO")
-                    return False
-                
-                self.logger.info(f"Lingua non consentita rilevata: '{detected_lang_code}' (consentite: {allowed_codes}) per '{text[:50]}...'")
+            # BLOCCA solo se è MOLTO probabilmente solo inglese (soglia alta)
+            if english_ratio >= 0.8 and len(english_words_found) >= 2:
+                self.logger.info(f"❌ Messaggio probabilmente inglese: {english_ratio:.2%} parole inglesi ({list(english_words_found)}) in '{clean_text}'")
                 return True
 
+        # ===== CONTROLLO 5: LANGDETECT (SOLO PER TESTI LUNGHI, CON FALLBACK MAGGIORE) =====
+        # Aumentiamo la soglia a 15 caratteri alfabetici per ridurre errori su testi brevi
+        if total_alpha_chars >= 15:  # Soglia aumentata da 8 a 15
+            detected_lang_code = self.detect_language(clean_text)
+            if detected_lang_code:
+                # Mappa le lingue consentite
+                lang_mapping = {'italian': 'it', 'it': 'it'}
+                allowed_codes = []
+                for lang in self.allowed_languages:
+                    mapped = lang_mapping.get(lang.lower(), lang.lower())
+                    allowed_codes.append(mapped)
+                
+                if detected_lang_code not in allowed_codes:
+                    # ===== FALLBACK AVANZATO: CONTROLLO PRESENZA ITALIANA =====
+                    # Se langdetect dice non-italiano ma ci sono chiari segnali italiani, ignoriamo langdetect
+                    
+                    # Conta parole italiane vs non-italiane
+                    total_words = len(words_in_text)
+                    italian_word_count = len(words_in_text.intersection(italian_indicators))
+                    
+                    # Se almeno il 20% delle parole sono italiane, consideriamo il testo italiano
+                    if total_words > 0 and (italian_word_count / total_words) >= 0.2:
+                        self.logger.info(f"✅ Langdetect dice '{detected_lang_code}' ma {italian_word_count}/{total_words} parole italiane trovate - PERMESSO: '{clean_text}'")
+                        return False
+                    
+                    # Controllo aggiuntivo: se contiene mix di termini tecnici + italiano
+                    tech_terms = {'link', 'meet', 'zoom', 'teams', 'gmeet', 'file', 'pdf', 'chat', 'gruppo', 'email'}
+                    tech_found = words_in_text.intersection(tech_terms)
+                    if tech_found and italian_word_count > 0:
+                        self.logger.info(f"✅ Langdetect dice '{detected_lang_code}' ma mix tecnico+italiano rilevato ({tech_found}, {italian_word_count} parole italiane) - PERMESSO: '{clean_text}'")
+                        return False
+                    
+                    # Solo qui blocchiamo davvero
+                    self.logger.info(f"❌ Lingua non consentita rilevata da Langdetect: '{detected_lang_code}' (consentite: {allowed_codes}) per '{clean_text[:50]}...'")
+                    return True
+        else:
+            self.logger.debug(f"✅ Testo troppo breve per Langdetect ({total_alpha_chars} caratteri alfabetici < 15) - PERMESSO: '{clean_text}'")
+
+        # ===== DEFAULT: PERMETTI =====
+        # Se arriviamo qui, in caso di dubbio permettiamo il messaggio
+        self.logger.debug(f"✅ Nessun blocco lingua applicato - PERMESSO: '{clean_text}'")
         return False
 
     def analyze_with_openai(self, message_text: str) -> Tuple[bool, bool, bool]:
@@ -379,13 +529,14 @@ class AdvancedModerationBotLogic: # Rinominato per chiarezza rispetto a Telegram
             "2. Verifica se contiene insulti gravi diretti ad altri utenti\n"
             "3. Verifica se contiene offerte commerciali ESPLICITE con menzione di pagamenti\n"
             "4. Verifica se contiene promozioni di investimenti, trading o criptovalute\n"
-            "5. Verifica se il messaggio è una DOMANDA (con o senza punto interrogativo)\n"
-            "6. Se hai dubbi, considera il messaggio APPROPRIATO\n\n"
+            "5. **NUOVO**: Verifica se contiene link a canali esterni per vendita/offerta materiale didattico\n"
+            "6. Verifica se il messaggio è una DOMANDA (con o senza punto interrogativo)\n"
+            "7. Se hai dubbi, considera il messaggio APPROPRIATO\n\n"
             
             "DETTAGLIO DEI CRITERI:\n\n"
             
             "1️⃣ LINGUA (analizza per prima cosa):\n"
-            f"Lingue consentite (codici ISO 639-1): {self.allowed_languages}\n" # Inietta le lingue consentite nel prompt
+            f"Lingue consentite (codici ISO 639-1): {self.allowed_languages}\n"
             "❌ NON CONSENTITA: SOLO messaggi INTERAMENTE in lingua straniera (non tra quelle consentite) senza italiano\n"
             "    • Esempio non consentito (se solo 'it' è consentito): Hello everyone how are you today\n"
             "✅ CONSENTITA: Tutto il resto, incluso:\n"
@@ -401,8 +552,12 @@ class AdvancedModerationBotLogic: # Rinominato per chiarezza rispetto a Telegram
             "    • prezzo, costo, euro, €, pagamento, acquistare, vendere, comprare, soldi\n"
             "❌ Inviti a contattare privatamente SOLO SE accompagnati da termini commerciali:\n"
             "    • Scrivetemi in privato per acquistare, Contattatemi per prezzi\n"
-            "❌ Link a canali esterni con espliciti intenti commerciali:\n"
-            "    • Entra nel nostro canale per acquistare materiale a prezzi scontati\n"
+            "❌ **NUOVO CRITICO**: Link a canali esterni Telegram per vendita/offerta materiale didattico:\n"
+            "    • Qualsiasi messaggio che contiene link t.me/canale + offerta di panieri/riassunti/materiale\n"
+            "    • Messaggi che promuovono 'canali ufficiali' per vendita materiale didattico\n"
+            "    • Inviti a iscriversi a canali esterni per ottenere materiale didattico\n"
+            "    • Esempi: 'Iscrivetevi al canale t.me/panieri', 'Materiale disponibile su t.me/riassunti'\n"
+            "    • 'Affidatevi all'unico canale preposto alla vendita di panieri'\n"
             "❌ Insulti pesanti diretti ad altri utenti:\n"
             "    • Offese personali gravi, linguaggio d'odio, minacce\n"
             "❌ Promozioni di investimenti o trading:\n"
@@ -411,6 +566,7 @@ class AdvancedModerationBotLogic: # Rinominato per chiarezza rispetto a Telegram
             "    • Promozioni di servizi di consulenza per investimenti o trading\n"
             "    • Offerte di guadagno attraverso criptovalute o forex\n"
             "    • Messaggi che condividono link a gruppi o bot per investimenti\n\n"
+            
             "ATTENZIONE SPAM MASCHERATO DI PANIERI (SEMPRE INAPPROPRIATO):\n"
             "❌ Qualsiasi messaggio che invita al contatto privato per panieri/materiale È SEMPRE INAPPROPRIATO, anche senza menzione di prezzo:\n"
             "    • Ciao, chi cerca panieri aggiornati mi scriva\n"
@@ -421,6 +577,18 @@ class AdvancedModerationBotLogic: # Rinominato per chiarezza rispetto a Telegram
             "    • Panieri completi, contattatemi per info\n"
             "❌ REGOLA: Se qualcuno offre panieri/materiale E chiede di essere contattato privatamente = INAPPROPRIATO: SI\n"
             "❌ Anche frasi come 'mi scriva', 'contattatemi', 'interessati in privato' sono SEMPRE sospette se legate a panieri\n\n"
+            
+            "❌ **NUOVA REGOLA CRITICA - LINK A CANALI ESTERNI**:\n"
+            "❌ Qualsiasi messaggio che contiene link a canali Telegram esterni (t.me/*, telegram.me/*) combinato con:\n"
+            "    • Offerta di materiale didattico (panieri, riassunti, appunti, slides, etc.)\n"
+            "    • Inviti a iscriversi per ottenere materiale\n"
+            "    • Promozione di 'canali ufficiali' per materiale\n"
+            "    • È SEMPRE INAPPROPRIATO: SI, anche se non menziona prezzi esplicitamente\n"
+            "❌ Esempi SEMPRE inappropriati:\n"
+            "    • 'Iscrivetevi al canale https://t.me/panieri per materiale aggiornato'\n"
+            "    • 'Affidatevi all'unico canale ufficiale preposto alla vendita di panieri t.me/riassunti'\n"
+            "    • 'Qui sotto il link del canale dove iscriversi se volete panieri https://t.me/materiale'\n"
+            "    • Qualsiasi variazione che combina link esterni + materiale didattico\n\n"
             
             "3️⃣ CASI SEMPRE APPROPRIATI (non marcare mai come inappropriati):\n"
             "✅ Richieste di materiale didattico tra studenti:\n"
@@ -447,16 +615,25 @@ class AdvancedModerationBotLogic: # Rinominato per chiarezza rispetto a Telegram
             "    • Non contengono menzione esplicita di denaro o pagamenti\n"
             "    • Non promuovono vendita di materiale didattico\n"
             "    • Non contengono termini commerciali (prezzo, costo, euro, €, pagamento)\n"
+            "❌ Link a canali Telegram esterni (t.me/*, telegram.me/*) sono INAPPROPRIATI se:\n"
+            "    • Combinati con offerta di materiale didattico\n"
+            "    • Presentati come 'canali ufficiali' per materiale\n"
+            "    • Contengono inviti a iscriversi per ottenere panieri/riassunti/materiale\n"
             "\n⚠️ Esempi di link SEMPRE APPROPRIATI:\n"
             "    • https://chat.whatsapp.com/Ab12CdEfGhIj (semplice link senza testo aggiuntivo)\n"
-            "    • Ecco il link: https://chat.whatsapp.com/Ab12CdEfGhIj\n\n"
+            "    • Ecco il link: https://chat.whatsapp.com/Ab12CdEfGhIj\n"
+            "⚠️ Esempi di link SEMPRE INAPPROPRIATI:\n"
+            "    • https://t.me/panieri + qualsiasi menzione di materiale didattico\n"
+            "    • t.me/riassunti + invito a iscriversi per materiale\n\n"
             
             "ESEMPI DI MESSAGGI CHIARAMENTE INAPPROPRIATI (marca SI):\n"
             "- Vendo panieri aggiornati e materiale didattico a 30€, contattatemi in privato\n"
             "- Offro aiuto tesi a pagamento, scrivetemi su WhatsApp 123456789\n"
             "- Entra nella community! @panieriunipegasomercatorum - materiale a soli 15€\n"
             "- Ciao a tutti! Ho scoperto un sistema per guadagnare con il trading. Contattate @trader123 per info\n"
-            "- Ciao a tutti😊 Se cercate panieri aggiornati e corretti con anche le risposte inedite di triennali e magistrali\n\n"
+            "- Ciao a tutti😊 Se cercate panieri aggiornati e corretti con anche le risposte inedite di triennali e magistrali\n"
+            "- **NUOVO**: Affidatevi all'unico canale ufficiale preposto alla vendita di panieri https://t.me/panieri\n"
+            "- **NUOVO**: Qui sotto il link del canale dove iscriversi se volete panieri https://t.me/materiale\n\n"
             
             "ESEMPI DI MESSAGGI TRUFFA CRYPTO/TRADING (marca SI):\n"
             "- Ho trovato qualcuno di cui mi fido per fare trading di criptovalute. Contattala direttamente\n"
@@ -474,7 +651,7 @@ class AdvancedModerationBotLogic: # Rinominato per chiarezza rispetto a Telegram
             "- Per favore mandate i numeri così vi aggiungo al gruppo WhatsApp\n\n"
             
             "CONTESTO UNIVERSITÀ TELEMATICHE:\n"
-            "I panieri sono raccolte legittime di domande d'esame. È normale che gli studenti se li scambino gratuitamente. Solo la VENDITA di panieri è inappropriata.\n\n"
+            "I panieri sono raccolte legittime di domande d'esame. È normale che gli studenti se li scambino gratuitamente. Solo la VENDITA di panieri o la promozione di canali esterni per materiale è inappropriata.\n\n"
             
             "IMPORTANTE: Se un messaggio non è CHIARAMENTE inappropriato secondo i criteri sopra, marcalo come APPROPRIATO. In caso di dubbio, è sempre meglio permettere un messaggio potenzialmente inappropriato piuttosto che bloccare un messaggio legittimo.\n\n"
 

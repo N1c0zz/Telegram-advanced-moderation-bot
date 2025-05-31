@@ -41,10 +41,16 @@ class ConfigManager:
         return {
             "banned_words": [
                 "panieriunipegasomercatorum", "unitelematica", "vendo panieri",
-                "offro panieri", "panieri a pagamento"
+                "offro panieri", "panieri a pagamento", "panieri e riassunti",
+                "scorrimento lezioni", "contattatemi per panieri e riassunti"
             ],
-            "exempt_users": [6232503826, 831728071, 906064950, "PoloLaDotta"],
-            "allowed_languages": ["italian"],
+            "whitelist_words": [
+                "PoloLaDotta", "EmmaSa"
+            ],
+            "exempt_users": [6232503826, 831728071, 906064950, "PoloLaDotta", 777000, 1087968824],
+            "allowed_languages": ["it"],
+            "auto_approve_short_messages": True,
+            "short_message_max_length": 4,
             "google_sheet_id": "",
             "google_credentials_file": "config/credentials.json",
             "share_on_startup": False,
