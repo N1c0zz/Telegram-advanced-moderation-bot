@@ -1017,6 +1017,214 @@ class TelegramModerationBot:
         await update.message.reply_text(f"🗑️ Cache AI resettata! Rimossi {cache_size_before} elementi dalla cache.")
         self.logger.info(f"Cache AI resettata da admin {user.username} ({user.id})")
 
+    async def manual_ban_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """
+        Comando /ban <user_id> per bannare manualmente un utente da tutti i gruppi.
+        Solo per admin autorizzati.
+        """
+        user = update.effective_user
+        if not user: 
+            return
+        
+        # Verifica permessi admin
+        exempt_users_list = self.config_manager.get('exempt_users', [])
+        if not (user.id in exempt_users_list or (user.username and user.username in exempt_users_list)):
+            await update.message.reply_text("❌ Non sei autorizzato a eseguire questo comando.")
+            return
+        
+        try:
+            # Parsing argomenti: /ban user_id [motivo opzionale]
+            args = context.args
+            if len(args) < 1:
+                await update.message.reply_text("❌ **Uso:** `/ban <user_id> [motivo]`\n\n**Esempio:** `/ban 123456789 spam`", parse_mode='Markdown')
+                return
+            
+            # Estrai user_id
+            try:
+                target_user_id = int(args[0])
+            except ValueError:
+                await update.message.reply_text("❌ L'user_id deve essere un numero valido.")
+                return
+            
+            # Motivo opzionale
+            motivo = " ".join(args[1:]) if len(args) > 1 else "Ban manuale da admin"
+            
+            # Verifica che non stia cercando di bannare se stesso
+            if target_user_id == user.id:
+                await update.message.reply_text("❌ Non puoi bannare te stesso!")
+                return
+            
+            # Verifica che non stia cercando di bannare un altro admin
+            if target_user_id in exempt_users_list:
+                await update.message.reply_text("❌ Non puoi bannare un altro amministratore!")
+                return
+            
+            # Invia messaggio di conferma inizio operazione
+            status_msg = await update.message.reply_text(f"🔨 **Ban in corso per utente:** `{target_user_id}`\n📝 **Motivo:** {motivo}\n\n⏳ Rimozione da tutti i gruppi configurati...", parse_mode='Markdown')
+            
+            # Lista dei gruppi target (usa la lista night_mode come gruppi principali)
+            target_groups = self.get_night_mode_groups()
+            
+            if not target_groups:
+                await status_msg.edit_text("❌ Nessun gruppo configurato per il ban. Verifica la configurazione `night_mode_groups`.")
+                return
+            
+            # Esegui ban da tutti i gruppi
+            results = await self._execute_multi_group_ban(context.bot, target_user_id, target_groups, motivo)
+            
+            # Salva il ban nei database (logico)
+            self.sheets_manager.ban_user(target_user_id, f"UserID_{target_user_id}", f"Ban manuale: {motivo}")
+            self.csv_manager.ban_user(target_user_id, f"UserID_{target_user_id}", f"Ban manuale: {motivo}")
+            
+            # Prepara report risultati
+            success_count = sum(1 for success in results.values() if success)
+            total_groups = len(target_groups)
+            
+            result_text = f"🔨 **BAN COMPLETATO**\n\n"
+            result_text += f"👤 **Utente:** `{target_user_id}`\n"
+            result_text += f"📝 **Motivo:** {motivo}\n"
+            result_text += f"📊 **Risultato:** {success_count}/{total_groups} gruppi\n\n"
+            
+            # Dettagli per gruppo
+            result_text += "📋 **Dettagli per gruppo:**\n"
+            for chat_id, success in results.items():
+                status_emoji = "✅" if success else "❌"
+                result_text += f"{status_emoji} Gruppo `{chat_id}`\n"
+            
+            # Status finale
+            if success_count == total_groups:
+                result_text += f"\n🎯 **Ban completato con successo!**"
+            elif success_count > 0:
+                result_text += f"\n⚠️ **Ban parzialmente riuscito.** Alcuni gruppi potrebbero richiedere permessi aggiuntivi."
+            else:
+                result_text += f"\n❌ **Ban fallito.** Verifica i permessi del bot nei gruppi."
+            
+            # Aggiorna il messaggio con i risultati
+            await status_msg.edit_text(result_text, parse_mode='Markdown')
+            
+            # Log per admin
+            self.logger.info(f"🔨 BAN MANUALE eseguito da {user.username} ({user.id}): utente {target_user_id} - successo {success_count}/{total_groups} gruppi")
+            
+        except Exception as e:
+            self.logger.error(f"Errore comando ban manuale: {e}", exc_info=True)
+            try:
+                await update.message.reply_text(f"❌ **Errore durante il ban:**\n`{str(e)}`", parse_mode='Markdown')
+            except:
+                pass
+
+    async def _execute_multi_group_ban(self, bot: Bot, user_id: int, target_groups: List[int], motivo: str) -> Dict[int, bool]:
+        """
+        Esegue il ban di un utente da multiple chat.
+        Restituisce dict {chat_id: success_bool}
+        """
+        results = {}
+        
+        self.logger.info(f"🔨 INIZIO BAN MULTI-GRUPPO per utente {user_id} da {len(target_groups)} gruppi. Motivo: {motivo}")
+        
+        for chat_id in target_groups:
+            try:
+                # Prova a ottenere info del gruppo per log migliore
+                group_name = f"Chat {chat_id}"
+                try:
+                    chat_info = await bot.get_chat(chat_id)
+                    group_name = chat_info.title or group_name
+                except:
+                    pass  # Se non riesce, usa il nome di default
+                
+                # Esegui il ban
+                await bot.ban_chat_member(chat_id, user_id)
+                results[chat_id] = True
+                self.logger.info(f"✅ Utente {user_id} bannato da {group_name} ({chat_id})")
+                
+            except Forbidden:
+                results[chat_id] = False
+                self.logger.error(f"❌ PERMESSI INSUFFICIENTI per bannare utente {user_id} dal gruppo {chat_id}. Il bot deve essere admin con permessi di ban.")
+                
+            except BadRequest as e:
+                error_msg = str(e).lower()
+                if "user not found" in error_msg or "user_not_participant" in error_msg:
+                    results[chat_id] = True  # Consideriamo successo se l'utente non è nel gruppo
+                    self.logger.info(f"ℹ️ Utente {user_id} non presente nel gruppo {chat_id} - considerato successo")
+                elif "user_admin" in error_msg or "can't remove chat owner" in error_msg:
+                    results[chat_id] = False
+                    self.logger.warning(f"⚠️ Impossibile bannare utente {user_id} dal gruppo {chat_id}: è admin del gruppo")
+                else:
+                    results[chat_id] = False
+                    self.logger.error(f"❌ ERRORE TELEGRAM BAN per utente {user_id} nel gruppo {chat_id}: {e}")
+                    
+            except Exception as e:
+                results[chat_id] = False
+                self.logger.error(f"❌ ERRORE GENERICO durante ban di utente {user_id} nel gruppo {chat_id}: {e}")
+        
+        success_count = sum(results.values())
+        self.logger.info(f"🔨 BAN MULTI-GRUPPO COMPLETATO: {success_count}/{len(target_groups)} gruppi per utente {user_id}")
+        
+        return results
+
+    # ===== AGGIUNGI ANCHE UN COMANDO /unban OPZIONALE =====
+
+    async def manual_unban_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """
+        Comando /unban <user_id> per rimuovere il ban da Telegram (il ban logico rimane).
+        Solo per admin autorizzati.
+        """
+        user = update.effective_user
+        if not user: 
+            return
+        
+        # Verifica permessi admin
+        exempt_users_list = self.config_manager.get('exempt_users', [])
+        if not (user.id in exempt_users_list or (user.username and user.username in exempt_users_list)):
+            await update.message.reply_text("❌ Non sei autorizzato a eseguire questo comando.")
+            return
+        
+        try:
+            args = context.args
+            if len(args) < 1:
+                await update.message.reply_text("❌ **Uso:** `/unban <user_id>`\n\n**Esempio:** `/unban 123456789`", parse_mode='Markdown')
+                return
+            
+            try:
+                target_user_id = int(args[0])
+            except ValueError:
+                await update.message.reply_text("❌ L'user_id deve essere un numero valido.")
+                return
+            
+            # Invia messaggio di stato
+            status_msg = await update.message.reply_text(f"🔓 **Unban in corso per utente:** `{target_user_id}`\n\n⏳ Rimozione ban da tutti i gruppi...", parse_mode='Markdown')
+            
+            # Lista gruppi
+            target_groups = self.get_night_mode_groups()
+            
+            if not target_groups:
+                await status_msg.edit_text("❌ Nessun gruppo configurato per l'unban.")
+                return
+            
+            # Esegui unban
+            results = {}
+            for chat_id in target_groups:
+                try:
+                    await context.bot.unban_chat_member(chat_id, target_user_id, only_if_banned=True)
+                    results[chat_id] = True
+                except Exception as e:
+                    results[chat_id] = False
+                    self.logger.warning(f"Errore unban utente {target_user_id} da gruppo {chat_id}: {e}")
+            
+            success_count = sum(results.values())
+            
+            result_text = f"🔓 **UNBAN TELEGRAM COMPLETATO**\n\n"
+            result_text += f"👤 **Utente:** `{target_user_id}`\n"
+            result_text += f"📊 **Risultato:** {success_count}/{len(target_groups)} gruppi\n\n"
+            result_text += f"⚠️ **Nota:** Il ban logico rimane attivo nel database."
+            
+            await status_msg.edit_text(result_text, parse_mode='Markdown')
+            
+            self.logger.info(f"🔓 UNBAN MANUALE eseguito da {user.username} ({user.id}): utente {target_user_id}")
+            
+        except Exception as e:
+            self.logger.error(f"Errore comando unban: {e}")
+            await update.message.reply_text(f"❌ **Errore durante l'unban:**\n`{str(e)}`", parse_mode='Markdown')
+
     # --- Bot Lifecycle & Scheduler ---
     def _run_scheduler_thread(self):
         """Esegue i task programmati in un thread separato."""
@@ -1130,6 +1338,8 @@ class TelegramModerationBot:
         self.application.add_handler(CommandHandler("nightoffall", self.night_mode_all_off_command))
         self.application.add_handler(CommandHandler("rules", self.show_rules_command))
         self.application.add_handler(CommandHandler("resetcache", self.reset_ai_cache_command))
+        self.application.add_handler(CommandHandler("ban", self.manual_ban_command))
+        self.application.add_handler(CommandHandler("unban", self.manual_unban_command))  # Opzionale
 
         # Pianifica Night Mode
         self._schedule_night_mode_jobs()
