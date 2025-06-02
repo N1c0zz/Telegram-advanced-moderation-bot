@@ -439,7 +439,9 @@ class TelegramModerationBot:
         else:
             total_user_messages = self.user_counters.get_count(user_id, chat_id)
 
-        # 1. Utenti esenti (admin)
+        # ===== CONTROLLI PRIORITARI (NON POSSONO ESSERE SALTATI) =====
+        
+        # 1. UTENTI ESENTI (ADMIN) - CONTROLLO PRIORITARIO
         exempt_users_list = self.config_manager.get('exempt_users', [])
         if user_id in exempt_users_list or username in exempt_users_list:
             self.logger.info(f"Messaggio {'modificato ' if is_edited else ''}da utente esente {username} ({user_id}) in {group_name} ({chat_id}).")
@@ -447,40 +449,28 @@ class TelegramModerationBot:
             self.csv_manager.save_admin_message(message_text, user_id, username, chat_id, group_name)
             return
 
-        # ===== AUTO-APPROVAZIONE IMMEDIATA =====
-        
-        # 2. Messaggi molto brevi (≤4 caratteri)
-        auto_approve_short = self.config_manager.get('auto_approve_short_messages', True)
-        short_max_length = self.config_manager.get('short_message_max_length', 4)
-        
-        if auto_approve_short and len(message_text.strip()) <= short_max_length:
-            self.logger.info(f"✅ Messaggio molto breve auto-approvato da {username}: '{message_text}' (lunghezza: {len(message_text.strip())})")
+        # 2. UTENTI GIÀ BANNATI - CONTROLLO CRITICO DI SICUREZZA
+        sheets_banned = self.sheets_manager.is_user_banned(user_id)
+        csv_banned = self.csv_manager.is_user_banned(user_id)
+        if sheets_banned or csv_banned:
+            self.logger.info(f"🚨 UTENTE BANNATO RILEVATO: {username} ({user_id}) ha tentato di scrivere: '{message_text}'")
             self.sheets_manager.save_message(
                 message_text, user_id, username, chat_id, group_name,
-                approvato=True, domanda=False, motivo_rifiuto="auto-approvato (messaggio breve)"
+                approvato=False, domanda=False, motivo_rifiuto=f"utente bannato (msg {'editato' if is_edited else 'nuovo'})"
             )
             self.csv_manager.save_message(
                 message_text, user_id, username, chat_id, group_name,
-                approvato=True, domanda=False, motivo_rifiuto="auto-approvato (messaggio breve)"
+                approvato=False, domanda=False, motivo_rifiuto=f"utente bannato (msg {'editato' if is_edited else 'nuovo'})"
             )
+            try:
+                await context.bot.delete_message(chat_id, message_id)
+                self.bot_stats['messages_deleted_total'] += 1
+                if is_edited: self.bot_stats['edited_messages_deleted'] += 1
+            except Exception as e:
+                self.logger.error(f"Errore cancellazione msg da utente bannato: {e}")
             return
 
-        # 3. Whitelist critica (solo parole/pattern molto specifici)
-        if self.moderation_logic.contains_whitelist_word(message_text):
-            self.logger.info(f"✅ Messaggio whitelist critica auto-approvato da {username}: '{message_text[:50]}...'")
-            self.sheets_manager.save_message(
-                message_text, user_id, username, chat_id, group_name,
-                approvato=True, domanda=False, motivo_rifiuto="auto-approvato (whitelist critica)"
-            )
-            self.csv_manager.save_message(
-                message_text, user_id, username, chat_id, group_name,
-                approvato=True, domanda=False, motivo_rifiuto="auto-approvato (whitelist critica)"
-            )
-            return
-
-        # ===== CONTROLLI DI SICUREZZA (NON POSSONO ESSERE SALTATI) =====
-        
-        # 4. Night Mode
+        # 3. NIGHT MODE - CONTROLLO DI SICUREZZA
         if self.is_night_mode_period_active(chat_id):
             is_in_grace_period = self.night_mode_transition_active and \
                                 self.night_mode_grace_period_end and \
@@ -498,26 +488,38 @@ class TelegramModerationBot:
                     self.logger.error(f"Errore cancellazione messaggio durante Night Mode anomala: {e}")
                 return
 
-        # 5. Utenti già bannati
-        sheets_banned = self.sheets_manager.is_user_banned(user_id)
-        csv_banned = self.csv_manager.is_user_banned(user_id)
-        if sheets_banned or csv_banned:
-            self.logger.info(f"Messaggio {'modificato ' if is_edited else ''}da utente già bannato {username} ({user_id}). Cancellazione.")
+        # ===== DOPO I CONTROLLI DI SICUREZZA: AUTO-APPROVAZIONI =====
+        
+        # 4. Messaggi molto brevi (≤4 caratteri) - DOPO controllo utenti bannati
+        auto_approve_short = self.config_manager.get('auto_approve_short_messages', True)
+        short_max_length = self.config_manager.get('short_message_max_length', 4)
+        
+        if auto_approve_short and len(message_text.strip()) <= short_max_length:
+            self.logger.info(f"✅ Messaggio molto breve auto-approvato da {username}: '{message_text}' (lunghezza: {len(message_text.strip())})")
             self.sheets_manager.save_message(
                 message_text, user_id, username, chat_id, group_name,
-                approvato=False, domanda=False, motivo_rifiuto=f"utente bannato (msg {'editato' if is_edited else 'nuovo'})"
+                approvato=True, domanda=False, motivo_rifiuto="auto-approvato (messaggio breve)"
             )
             self.csv_manager.save_message(
                 message_text, user_id, username, chat_id, group_name,
-                approvato=False, domanda=False, motivo_rifiuto=f"utente bannato (msg {'editato' if is_edited else 'nuovo'})"
+                approvato=True, domanda=False, motivo_rifiuto="auto-approvato (messaggio breve)"
             )
-            try:
-                await context.bot.delete_message(chat_id, message_id)
-                self.bot_stats['messages_deleted_total'] += 1
-                if is_edited: self.bot_stats['edited_messages_deleted'] += 1
-            except Exception as e:
-                self.logger.error(f"Errore cancellazione msg da utente bannato: {e}")
             return
+
+        # 5. Whitelist critica - DOPO controllo utenti bannati
+        if self.moderation_logic.contains_whitelist_word(message_text):
+            self.logger.info(f"✅ Messaggio whitelist critica auto-approvato da {username}: '{message_text[:50]}...'")
+            self.sheets_manager.save_message(
+                message_text, user_id, username, chat_id, group_name,
+                approvato=True, domanda=False, motivo_rifiuto="auto-approvato (whitelist critica)"
+            )
+            self.csv_manager.save_message(
+                message_text, user_id, username, chat_id, group_name,
+                approvato=True, domanda=False, motivo_rifiuto="auto-approvato (whitelist critica)"
+            )
+            return
+
+        # ===== CONTROLLI DI MODERAZIONE AVANZATI =====
 
         # 6. Spam Cross-Gruppo
         if not is_edited:
