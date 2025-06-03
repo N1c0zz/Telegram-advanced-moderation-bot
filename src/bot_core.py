@@ -11,6 +11,7 @@ import schedule # type: ignore
 from telegram import Update, ChatPermissions, Bot
 from telegram.ext import Application, MessageHandler, CommandHandler, filters, ContextTypes
 from telegram.error import BadRequest, Forbidden
+from telegram.error import NetworkError, TimedOut
 
 # Importazioni locali dal package src
 from .config_manager import ConfigManager
@@ -1311,7 +1312,7 @@ class TelegramModerationBot:
 
 
     def start(self):
-        """Avvia il bot, imposta gli handler e inizia il polling."""
+        """Avvia il bot con gestione silenziosa degli errori di polling."""
         self.logger.info(f"Avvio del Bot di Moderazione Telegram (PID: {os.getpid()})...")
         self.logger.info(f"Directory di lavoro corrente: {os.getcwd()}")
 
@@ -1344,20 +1345,37 @@ class TelegramModerationBot:
         # Pianifica Night Mode
         self._schedule_night_mode_jobs()
 
-        # Avvia thread per scheduler (backup, pulizia cache, night mode)
+        # Avvia thread per scheduler
         import threading
         self.scheduler_thread = threading.Thread(target=self._run_scheduler_thread, daemon=True)
         self.scheduler_thread.start()
-        
-        # Verifica Night Mode all'avvio (dopo un breve delay per permettere al bot di connettersi)
-        # Lo facciamo in un thread separato per non bloccare l'avvio del polling
-        # startup_nm_check_thread = threading.Thread(target=lambda: (time.sleep(30), self._check_night_mode_on_startup()), daemon=True)
-        # startup_nm_check_thread.start()
+
+        # AGGIUNTO: Handler per errori di polling
+        async def error_handler(update, context):
+            """Gestisce silenziosamente gli errori di rete del polling."""
+            error = context.error
+            
+            # Ignora gli errori di rete comuni
+            if isinstance(error, (NetworkError, TimedOut)):
+                # Log solo ogni 10 errori per non spammare
+                if not hasattr(self, '_network_error_count'):
+                    self._network_error_count = 0
+                self._network_error_count += 1
+                
+                if self._network_error_count % 10 == 1:  # Log al 1°, 11°, 21°, etc.
+                    self.logger.debug(f"🌐 Errori di rete nel polling: #{self._network_error_count} (dettagli soppressi)")
+                return
+            
+            # Per altri errori, log normale
+            self.logger.error(f"Errore non di rete: {error}", exc_info=True)
+
+        # Registra l'error handler
+        self.application.add_error_handler(error_handler)
 
         self.logger.info("Bot configurato e pronto. Avvio polling...")
         try:
             self.application.run_polling(
-                allowed_updates=Update.ALL_TYPES, # o specifica i tipi per efficienza
+                allowed_updates=Update.ALL_TYPES,
                 drop_pending_updates=self.config_manager.get('drop_pending_updates_on_start', True)
             )
         except KeyboardInterrupt:
