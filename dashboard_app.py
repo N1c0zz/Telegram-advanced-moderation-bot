@@ -351,11 +351,42 @@ class DashboardApp:
         def api_recent_activity():
             """API dedicata per attività recente sulla homepage."""
             try:
+                from datetime import datetime
+
                 if not self.bot or not self.bot.csv_manager:
                     return jsonify({'error': 'Bot non attivo', 'messages': []})
                 
-                # Leggi gli ultimi 5 messaggi dal CSV
-                recent_messages = self.bot.csv_manager.read_csv_data("messages", limit=5)
+                # Leggi TUTTI i messaggi dal CSV (senza limit)
+                all_messages = self.bot.csv_manager.read_csv_data("messages")
+                
+                if not all_messages:
+                    return jsonify({'success': True, 'messages': [], 'total': 0})
+                
+                # Ordina per timestamp (più recente prima)
+                def parse_timestamp(msg):
+                    timestamp = msg.get('timestamp', '')
+                    try:
+                        if timestamp:
+                            # Prova diversi formati di timestamp
+                            if 'T' in timestamp:  # ISO format
+                                return datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+                            else:  # Altri formati
+                                return datetime.strptime(timestamp, '%Y-%m-%d %H:%M:%S')
+                        return datetime.min  # Se non c'è timestamp, metti alla fine
+                    except:
+                        return datetime.min
+                
+                # Ordina dal più recente al più vecchio
+                sorted_messages = sorted(all_messages, key=parse_timestamp, reverse=True)
+                
+                # Prendi solo i primi 5
+                recent_messages = sorted_messages[:5]
+                
+                # Debug log per verificare l'ordinamento
+                self.logger.info(f"Messaggi trovati: {len(all_messages)}, primi 5 timestamps:")
+                for i, msg in enumerate(recent_messages):
+                    timestamp = msg.get('timestamp', 'N/A')
+                    self.logger.info(f"  {i+1}. {timestamp}")
                 
                 # Formatta i dati per la homepage
                 formatted_messages = []
@@ -365,12 +396,16 @@ class DashboardApp:
                     try:
                         from datetime import datetime
                         if timestamp:
-                            dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+                            if 'T' in timestamp:  # ISO format
+                                dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+                            else:
+                                dt = datetime.strptime(timestamp, '%Y-%m-%d %H:%M:%S')
                             formatted_time = dt.strftime('%d/%m %H:%M')
                         else:
                             formatted_time = 'N/A'
-                    except:
-                        formatted_time = timestamp[:10] if timestamp else 'N/A'
+                    except Exception as e:
+                        self.logger.warning(f"Errore parsing timestamp '{timestamp}': {e}")
+                        formatted_time = timestamp[:16] if timestamp else 'N/A'
                     
                     # Tronca il messaggio se troppo lungo
                     message_text = msg.get('messaggio', '')
@@ -389,17 +424,19 @@ class DashboardApp:
                         'username': msg.get('username', 'N/A'),
                         'message': message_text,
                         'status': status_badge,
-                        'group': msg.get('group_name', 'N/A')
+                        'group': msg.get('group_name', 'N/A'),
+                        'raw_timestamp': timestamp  # Per debug
                     })
                 
                 return jsonify({
                     'success': True,
                     'messages': formatted_messages,
-                    'total': len(formatted_messages)
+                    'total': len(formatted_messages),
+                    'total_in_db': len(all_messages)  # Per debug
                 })
                 
             except Exception as e:
-                self.logger.error(f"Errore API recent activity: {e}")
+                self.logger.error(f"Errore API recent activity: {e}", exc_info=True)
                 return jsonify({
                     'error': str(e),
                     'messages': []
