@@ -1,0 +1,390 @@
+{% extends "dashboard/base.html" %}
+
+{% block title %}Dashboard - Bot Moderazione{% endblock %}
+
+{% block page_title %}Dashboard Overview{% endblock %}
+{% block page_description %}Panoramica generale del sistema di moderazione{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+    <!-- Bot Controls -->
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">
+                    <i class="bi bi-robot me-2"></i>Controllo Bot
+                </h5>
+                {% if bot_status.is_running %}
+                    <span class="badge bg-success">Online</span>
+                {% else %}
+                    <span class="badge bg-danger">Offline</span>
+                {% endif %}
+            </div>
+            <div class="card-body">
+                <div class="row align-items-center">
+                    <div class="col-md-8">
+                        {% if bot_status.is_running %}
+                            <h6 class="text-success mb-2">
+                                <i class="bi bi-check-circle me-2"></i>Bot in esecuzione
+                            </h6>
+                            <p class="text-muted mb-2">
+                                <strong>Avviato:</strong> {{ formatDate(bot_status.start_time) if bot_status.start_time else 'N/A' }}<br>
+                                <strong>Uptime:</strong> <span id="uptime-display">{{ bot_status.uptime_seconds or 0 }}</span> secondi<br>
+                                <strong>Night Mode:</strong> 
+                                {% if bot_status.night_mode_active %}
+                                    <span class="badge bg-primary">Attiva</span>
+                                {% else %}
+                                    <span class="badge bg-secondary">Inattiva</span>
+                                {% endif %}
+                            </p>
+                        {% else %}
+                            <h6 class="text-danger mb-2">
+                                <i class="bi bi-x-circle me-2"></i>Bot non in esecuzione
+                            </h6>
+                            <p class="text-muted">Il bot è attualmente fermo. Clicca su "Avvia Bot" per iniziare la moderazione.</p>
+                        {% endif %}
+                    </div>
+                    <div class="col-md-4 text-end">
+                        {% if bot_status.is_running %}
+                            <form method="POST" action="{{ url_for('stop_bot') }}" class="d-inline">
+                                <button type="submit" class="btn btn-danger" onclick="return confirm('Sei sicuro di voler fermare il bot?')">
+                                    <i class="bi bi-stop-circle me-2"></i>Ferma Bot
+                                </button>
+                            </form>
+                        {% else %}
+                            <form method="POST" action="{{ url_for('start_bot') }}" class="d-inline">
+                                <button type="submit" class="btn btn-success">
+                                    <i class="bi bi-play-circle me-2"></i>Avvia Bot
+                                </button>
+                            </form>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Quick Stats -->
+    <div class="col-md-3">
+        <div class="card text-center">
+            <div class="card-body">
+                <div class="display-6 text-primary mb-2">
+                    <i class="bi bi-chat-dots"></i>
+                </div>
+                <h3 class="mb-1">{{ formatNumber(recent_stats.total_messages_24h) }}</h3>
+                <p class="text-muted mb-0">Messaggi (24h)</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-3">
+        <div class="card text-center">
+            <div class="card-body">
+                <div class="display-6 text-danger mb-2">
+                    <i class="bi bi-trash"></i>
+                </div>
+                <h3 class="mb-1">{{ formatNumber(recent_stats.rejected_messages_24h) }}</h3>
+                <p class="text-muted mb-0">Eliminati (24h)</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-3">
+        <div class="card text-center">
+            <div class="card-body">
+                <div class="display-6 text-warning mb-2">
+                    <i class="bi bi-person-x"></i>
+                </div>
+                <h3 class="mb-1">{{ formatNumber(recent_stats.new_bans_24h) }}</h3>
+                <p class="text-muted mb-0">Ban (24h)</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-3">
+        <div class="card text-center">
+            <div class="card-body">
+                <div class="display-6 text-success mb-2">
+                    <i class="bi bi-check-circle"></i>
+                </div>
+                <h3 class="mb-1">{{ "%.1f"|format(recent_stats.approval_rate_24h) }}%</h3>
+                <p class="text-muted mb-0">Tasso Approvazione</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- System Stats -->
+    {% if bot_status.stats %}
+    <div class="col-lg-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="bi bi-cpu me-2"></i>Statistiche Sistema
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-6">
+                        <div class="d-flex justify-content-between">
+                            <span class="text-muted">Messaggi Processati:</span>
+                            <strong>{{ formatNumber(bot_status.stats.bot_stats.total_messages_processed) }}</strong>
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <div class="d-flex justify-content-between">
+                            <span class="text-muted">Messaggi Eliminati:</span>
+                            <strong class="text-danger">{{ formatNumber(bot_status.stats.bot_stats.messages_deleted_total) }}</strong>
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <div class="d-flex justify-content-between">
+                            <span class="text-muted">Utenti Bannati:</span>
+                            <strong class="text-warning">{{ formatNumber(bot_status.stats.bot_stats.users_banned_total) }}</strong>
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <div class="d-flex justify-content-between">
+                            <span class="text-muted">Richieste OpenAI:</span>
+                            <strong class="text-info">{{ formatNumber(bot_status.stats.moderation_stats.openai_requests) }}</strong>
+                        </div>
+                    </div>
+                    <div class="col-12">
+                        <hr class="my-2">
+                    </div>
+                    <div class="col-6">
+                        <div class="d-flex justify-content-between">
+                            <span class="text-muted">Cache Hit Rate:</span>
+                            <strong class="text-success">{{ "%.1f"|format(bot_status.stats.moderation_stats.cache_hit_rate * 100) }}%</strong>
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <div class="d-flex justify-content-between">
+                            <span class="text-muted">Utenti Tracciati:</span>
+                            <strong>{{ formatNumber(bot_status.stats.user_counter_stats.total_tracked_users) }}</strong>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- CSV System Status -->
+    {% if bot_status.stats and bot_status.stats.csv_stats %}
+    <div class="col-lg-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="bi bi-database me-2"></i>Sistema CSV
+                </h5>
+            </div>
+            <div class="card-body">
+                {% if bot_status.stats.csv_stats.csv_disabled %}
+                    <div class="alert alert-warning">
+                        <i class="bi bi-exclamation-triangle me-2"></i>
+                        Sistema CSV disabilitato
+                    </div>
+                {% else %}
+                    <div class="row g-3">
+                        <div class="col-12">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <span class="text-muted">Messaggi nel DB:</span>
+                                <strong class="text-primary">{{ formatNumber(bot_status.stats.csv_stats.messages or 0) }}</strong>
+                            </div>
+                        </div>
+                        <div class="col-12">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <span class="text-muted">Messaggi Admin:</span>
+                                <strong class="text-info">{{ formatNumber(bot_status.stats.csv_stats.admin or 0) }}</strong>
+                            </div>
+                        </div>
+                        <div class="col-12">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <span class="text-muted">Utenti Bannati:</span>
+                                <strong class="text-danger">{{ formatNumber(bot_status.stats.csv_stats.banned_users or 0) }}</strong>
+                            </div>
+                        </div>
+                        <div class="col-12">
+                            <hr class="my-2">
+                            <a href="{{ url_for('backup_page') }}" class="btn btn-outline-primary btn-sm w-100">
+                                <i class="bi bi-download me-2"></i>Gestisci Backup
+                            </a>
+                        </div>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Quick Actions -->
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="bi bi-lightning me-2"></i>Azioni Rapide
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-md-3">
+                        <a href="{{ url_for('messages') }}" class="btn btn-outline-primary w-100">
+                            <i class="bi bi-chat-dots me-2"></i>
+                            Visualizza Messaggi
+                        </a>
+                    </div>
+                    <div class="col-md-3">
+                        <a href="{{ url_for('banned_users') }}" class="btn btn-outline-danger w-100">
+                            <i class="bi bi-person-x me-2"></i>
+                            Gestisci Ban
+                        </a>
+                    </div>
+                    <div class="col-md-3">
+                        <a href="{{ url_for('config') }}" class="btn btn-outline-warning w-100">
+                            <i class="bi bi-gear me-2"></i>
+                            Configurazioni
+                        </a>
+                    </div>
+                    <div class="col-md-3">
+                        <a href="{{ url_for('analytics') }}" class="btn btn-outline-info w-100">
+                            <i class="bi bi-graph-up me-2"></i>
+                            Analytics
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Recent Activity Preview -->
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">
+                    <i class="bi bi-clock-history me-2"></i>Attività Recente
+                </h5>
+                <a href="{{ url_for('messages') }}" class="btn btn-sm btn-outline-primary">
+                    Vedi tutto <i class="bi bi-arrow-right"></i>
+                </a>
+            </div>
+            <div class="card-body">
+                <div id="recent-activity-loading" class="text-center py-4">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Caricamento...</span>
+                    </div>
+                    <p class="text-muted mt-2">Caricamento attività recente...</p>
+                </div>
+                <div id="recent-activity-content" style="display: none;">
+                    <!-- Contenuto caricato via AJAX -->
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Update uptime display
+    function updateUptime() {
+        const uptimeElement = document.getElementById('uptime-display');
+        if (uptimeElement) {
+            let seconds = parseInt(uptimeElement.textContent);
+            if (!isNaN(seconds)) {
+                seconds += 1;
+                uptimeElement.textContent = formatUptime(seconds);
+            }
+        }
+    }
+
+    function formatUptime(seconds) {
+        const days = Math.floor(seconds / 86400);
+        const hours = Math.floor((seconds % 86400) / 3600);
+        const mins = Math.floor((seconds % 3600) / 60);
+        const secs = seconds % 60;
+
+        if (days > 0) {
+            return `${days}g ${hours}h ${mins}m`;
+        } else if (hours > 0) {
+            return `${hours}h ${mins}m ${secs}s`;
+        } else if (mins > 0) {
+            return `${mins}m ${secs}s`;
+        } else {
+            return `${secs}s`;
+        }
+    }
+
+    // Nessuna dipendenza da template
+    document.addEventListener('DOMContentLoaded', function() {
+        function checkBotStatusAndStartTimer() {
+            fetch('/api/bot/status')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.is_running) {
+                        setInterval(updateUptime, 1000);
+                    }
+                })
+                .catch(error => console.log('Status check failed:', error));
+        }
+        
+        checkBotStatusAndStartTimer();
+    });
+
+    // Load recent activity
+    function loadRecentActivity() {
+        fetch('/messages?limit=5')
+            .then(response => response.text())
+            .then(html => {
+                // Extract table content from response
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(html, 'text/html');
+                const table = doc.querySelector('table');
+                
+                const loadingDiv = document.getElementById('recent-activity-loading');
+                const contentDiv = document.getElementById('recent-activity-content');
+                
+                if (table && table.rows.length > 1) {
+                    // Create simplified table for preview
+                    const previewTable = document.createElement('table');
+                    previewTable.className = 'table table-sm';
+                    previewTable.innerHTML = `
+                        <thead>
+                            <tr>
+                                <th>Timestamp</th>
+                                <th>Utente</th>
+                                <th>Messaggio</th>
+                                <th>Stato</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    `;
+                    
+                    // Copy first 5 rows
+                    const tbody = previewTable.querySelector('tbody');
+                    for (let i = 1; i <= Math.min(6, table.rows.length - 1); i++) {
+                        const row = table.rows[i].cloneNode(true);
+                        tbody.appendChild(row);
+                    }
+                    
+                    contentDiv.innerHTML = '';
+                    contentDiv.appendChild(previewTable);
+                } else {
+                    contentDiv.innerHTML = '<p class="text-muted text-center">Nessuna attività recente</p>';
+                }
+                
+                loadingDiv.style.display = 'none';
+                contentDiv.style.display = 'block';
+            })
+            .catch(error => {
+                console.error('Errore caricamento attività:', error);
+                document.getElementById('recent-activity-loading').innerHTML = 
+                    '<p class="text-danger text-center">Errore caricamento attività</p>';
+            });
+    }
+
+    // Load recent activity after page load
+    setTimeout(loadRecentActivity, 1000);
+});
+</script>
+{% endblock %}

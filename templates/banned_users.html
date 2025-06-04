@@ -1,0 +1,610 @@
+{% extends "dashboard/base.html" %}
+
+{% block title %}Utenti Bannati - Dashboard{% endblock %}
+
+{% block page_title %}Utenti Bannati{% endblock %}
+{% block page_description %}Gestione degli utenti bannati dal sistema{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+    <!-- Stats Card -->
+    <div class="col-12">
+        <div class="card">
+            <div class="card-body">
+                <div class="row text-center">
+                    <div class="col-md-3">
+                        <div class="d-flex align-items-center justify-content-center">
+                            <div class="display-6 text-danger me-3">
+                                <i class="bi bi-person-x"></i>
+                            </div>
+                            <div>
+                                <h4 class="mb-0">{{ banned_users|length }}</h4>
+                                <p class="text-muted mb-0">Attualmente Bannati</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="d-flex align-items-center justify-content-center">
+                            <div class="display-6 text-success me-3">
+                                <i class="bi bi-person-check"></i>
+                            </div>
+                            <div>
+                                <h4 class="mb-0" id="total-unbans">-</h4>
+                                <p class="text-muted mb-0">Totale Unban</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="d-flex align-items-center justify-content-center">
+                            <div class="display-6 text-warning me-3">
+                                <i class="bi bi-clock"></i>
+                            </div>
+                            <div>
+                                <h4 class="mb-0">
+                                    {% if banned_users %}
+                                        {{ (banned_users|map(attribute='days_since_ban')|sum / banned_users|length)|round(1) }}
+                                    {% else %}
+                                        0
+                                    {% endif %}
+                                </h4>
+                                <p class="text-muted mb-0">Giorni Medi</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="d-flex align-items-center justify-content-center">
+                            <div class="display-6 text-info me-3">
+                                <i class="bi bi-calendar-today"></i>
+                            </div>
+                            <div>
+                                <h4 class="mb-0">
+                                    {{ banned_users|selectattr('days_since_ban', 'lessthan', 7)|list|length }}
+                                </h4>
+                                <p class="text-muted mb-0">Ban Recenti (7gg)</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Actions Card -->
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">
+                    <i class="bi bi-tools me-2"></i>Azioni Rapide
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <div class="d-flex gap-2">
+                            <input type="number" id="quick-ban-user-id" class="form-control" placeholder="User ID da bannare">
+                            <button class="btn btn-danger" onclick="quickBanUser()">
+                                <i class="bi bi-person-x me-1"></i>Ban
+                            </button>
+                        </div>
+                        <small class="text-muted">Inserisci l'ID utente per bannarlo rapidamente</small>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="d-flex gap-2">
+                            <input type="number" id="quick-search-user-id" class="form-control" placeholder="User ID da cercare">
+                            <button class="btn btn-info" onclick="searchUser()">
+                                <i class="bi bi-search me-1"></i>Cerca
+                            </button>
+                        </div>
+                        <small class="text-muted">Cerca informazioni su un utente specifico</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Banned Users Table -->
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">
+                    <i class="bi bi-table me-2"></i>Lista Utenti Bannati
+                </h5>
+                <div class="d-flex gap-2">
+                    <button class="btn btn-sm btn-outline-secondary" onclick="refreshTable()">
+                        <i class="bi bi-arrow-clockwise me-1"></i>Aggiorna
+                    </button>
+                    <div class="dropdown">
+                        <button class="btn btn-sm btn-outline-primary dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                            <i class="bi bi-funnel me-1"></i>Filtri
+                        </button>
+                        <ul class="dropdown-menu">
+                            <li><a class="dropdown-item" href="?limit=20">Ultimi 20</a></li>
+                            <li><a class="dropdown-item" href="?limit=50">Ultimi 50</a></li>
+                            <li><a class="dropdown-item" href="?limit=100">Ultimi 100</a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item" href="#" onclick="filterByDays(7)">Ultimi 7 giorni</a></li>
+                            <li><a class="dropdown-item" href="#" onclick="filterByDays(30)">Ultimi 30 giorni</a></li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+            <div class="card-body p-0">
+                {% if banned_users %}
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0">
+                        <thead>
+                            <tr>
+                                <th>User ID</th>
+                                <th>Data Ban</th>
+                                <th>Giorni fa</th>
+                                <th>Motivo</th>
+                                <th class="text-center">Azioni</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for user in banned_users %}
+                            <tr data-user-id="{{ user.user_id }}">
+                                <td>
+                                    <div class="d-flex align-items-center">
+                                        <div class="bg-danger text-white rounded-circle d-flex align-items-center justify-content-center me-2" 
+                                             style="width: 32px; height: 32px; font-size: 0.75rem;">
+                                            <i class="bi bi-person"></i>
+                                        </div>
+                                        <div>
+                                            <strong>{{ user.user_id }}</strong>
+                                            <br>
+                                            <small class="text-muted">ID: {{ user.user_id }}</small>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td>
+                                    <span title="{{ user.timestamp }}">
+                                        {{ user.ban_date_formatted }}
+                                    </span>
+                                </td>
+                                <td>
+                                    <span class="badge bg-{% if user.days_since_ban < 7 %}danger{% elif user.days_since_ban < 30 %}warning{% else %}secondary{% endif %}">
+                                        {{ user.days_since_ban }} giorni
+                                    </span>
+                                </td>
+                                <td>
+                                    <span class="text-truncate d-inline-block" style="max-width: 200px;" title="{{ user.motivo }}">
+                                        {{ user.motivo }}
+                                    </span>
+                                </td>
+                                <td class="text-center">
+                                    <div class="btn-group btn-group-sm">
+                                        <button class="btn btn-outline-info" onclick="viewUserDetails('{{ user.user_id }}')" title="Dettagli utente">
+                                            <i class="bi bi-eye"></i>
+                                        </button>
+                                        {% if user.can_unban %}
+                                        <button class="btn btn-outline-success" onclick="unbanUser('{{ user.user_id }}')" title="Sbanna utente">
+                                            <i class="bi bi-person-check"></i>
+                                        </button>
+                                        {% endif %}
+                                    </div>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="text-center py-5">
+                    <div class="display-4 text-muted mb-3">
+                        <i class="bi bi-person-check"></i>
+                    </div>
+                    <h5 class="text-muted">Nessun utente bannato</h5>
+                    <p class="text-muted">Al momento non ci sono utenti nella lista dei bannati.</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- User Details Modal -->
+<div class="modal fade" id="userDetailsModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="bi bi-person-circle me-2"></i>Dettagli Utente
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="user-details-loading" class="text-center py-4">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Caricamento...</span>
+                    </div>
+                    <p class="text-muted mt-2">Caricamento dettagli utente...</p>
+                </div>
+                <div id="user-details-content" style="display: none;">
+                    <!-- Contenuto caricato via AJAX -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Chiudi</button>
+                <button type="button" class="btn btn-danger" id="ban-user-from-modal" style="display: none;">
+                    <i class="bi bi-person-x me-1"></i>Banna Utente
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Quick Ban Modal -->
+<div class="modal fade" id="quickBanModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="bi bi-person-x me-2"></i>Conferma Ban
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p>Sei sicuro di voler bannare l'utente <strong id="ban-user-id-display"></strong>?</p>
+                <div class="mb-3">
+                    <label for="ban-reason" class="form-label">Motivo del ban:</label>
+                    <input type="text" class="form-control" id="ban-reason" placeholder="Inserisci il motivo del ban" value="Ban manuale da dashboard">
+                </div>
+                <div class="alert alert-warning">
+                    <i class="bi bi-exclamation-triangle me-2"></i>
+                    <strong>Attenzione:</strong> Questa azione bannerà l'utente da tutti i gruppi configurati.
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annulla</button>
+                <button type="button" class="btn btn-danger" id="confirm-ban-btn">
+                    <i class="bi bi-person-x me-1"></i>Conferma Ban
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let currentUserId = null;
+
+// Quick ban user
+function quickBanUser() {
+    const userIdInput = document.getElementById('quick-ban-user-id');
+    const userId = userIdInput.value.trim();
+    
+    if (!userId) {
+        showAlert('Inserisci un User ID valido', 'warning');
+        return;
+    }
+    
+    if (!/^\d+$/.test(userId)) {
+        showAlert('User ID deve essere un numero', 'warning');
+        return;
+    }
+    
+    currentUserId = userId;
+    document.getElementById('ban-user-id-display').textContent = userId;
+    
+    const modal = new bootstrap.Modal(document.getElementById('quickBanModal'));
+    modal.show();
+}
+
+// Confirm ban
+document.getElementById('confirm-ban-btn').addEventListener('click', function() {
+    const button = this;
+    const originalText = showLoading(button);
+    const reason = document.getElementById('ban-reason').value.trim() || 'Ban manuale da dashboard';
+    
+    fetch('/api/user/ban', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            user_id: currentUserId,
+            reason: reason
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        hideLoading(button, originalText);
+        
+        if (data.success) {
+            showAlert(`Utente ${currentUserId} bannato con successo! (${data.groups_banned}/${data.total_groups} gruppi)`, 'success');
+            
+            // Close modal
+            const modal = bootstrap.Modal.getInstance(document.getElementById('quickBanModal'));
+            modal.hide();
+            
+            // Clear input
+            document.getElementById('quick-ban-user-id').value = '';
+            
+            // Refresh page after 2 seconds
+            setTimeout(() => {
+                window.location.reload();
+            }, 2000);
+        } else {
+            showAlert(`Errore durante il ban: ${data.message}`, 'danger');
+        }
+    })
+    .catch(error => {
+        hideLoading(button, originalText);
+        showAlert('Errore di comunicazione con il server', 'danger');
+        console.error('Errore ban:', error);
+    });
+});
+
+// Unban user
+function unbanUser(userId) {
+    if (!confirm(`Sei sicuro di voler sbannare l'utente ${userId}?`)) {
+        return;
+    }
+    
+    fetch('/api/user/unban', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            user_id: userId
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showAlert(`Utente ${userId} sbannato con successo! (${data.groups_unbanned}/${data.total_groups} gruppi)`, 'success');
+            
+            // Remove row from table
+            const row = document.querySelector(`tr[data-user-id="${userId}"]`);
+            if (row) {
+                row.style.transition = 'opacity 0.3s';
+                row.style.opacity = '0.5';
+                setTimeout(() => row.remove(), 300);
+            }
+        } else {
+            showAlert(`Errore durante l'unban: ${data.message}`, 'danger');
+        }
+    })
+    .catch(error => {
+        showAlert('Errore di comunicazione con il server', 'danger');
+        console.error('Errore unban:', error);
+    });
+}
+
+// View user details
+function viewUserDetails(userId) {
+    const modal = new bootstrap.Modal(document.getElementById('userDetailsModal'));
+    modal.show();
+    
+    // Reset modal content
+    document.getElementById('user-details-loading').style.display = 'block';
+    document.getElementById('user-details-content').style.display = 'none';
+    document.getElementById('ban-user-from-modal').style.display = 'none';
+    
+    fetch(`/api/user/search/${userId}`)
+        .then(response => response.json())
+        .then(data => {
+            document.getElementById('user-details-loading').style.display = 'none';
+            document.getElementById('user-details-content').style.display = 'block';
+            
+            if (data.error) {
+                document.getElementById('user-details-content').innerHTML = `
+                    <div class="alert alert-danger">
+                        <i class="bi bi-exclamation-triangle me-2"></i>
+                        Errore: ${data.error}
+                    </div>
+                `;
+                return;
+            }
+            
+            // Show ban button if user is not banned
+            if (!data.is_banned) {
+                document.getElementById('ban-user-from-modal').style.display = 'inline-block';
+                document.getElementById('ban-user-from-modal').onclick = function() {
+                    modal.hide();
+                    currentUserId = userId;
+                    document.getElementById('ban-user-id-display').textContent = userId;
+                    const banModal = new bootstrap.Modal(document.getElementById('quickBanModal'));
+                    banModal.show();
+                };
+            }
+            
+            const content = `
+                <div class="row g-4">
+                    <div class="col-md-6">
+                        <div class="card">
+                            <div class="card-header">
+                                <h6 class="mb-0">Informazioni Generali</h6>
+                            </div>
+                            <div class="card-body">
+                                <dl class="row mb-0">
+                                    <dt class="col-4">User ID:</dt>
+                                    <dd class="col-8">${data.user_id}</dd>
+                                    
+                                    <dt class="col-4">Bannato:</dt>
+                                    <dd class="col-8">
+                                        <span class="badge bg-${data.is_banned ? 'danger' : 'success'}">
+                                            ${data.is_banned ? 'SÌ' : 'NO'}
+                                        </span>
+                                    </dd>
+                                    
+                                    <dt class="col-4">Tot. Messaggi:</dt>
+                                    <dd class="col-8">${formatNumber(data.total_messages)}</dd>
+                                    
+                                    <dt class="col-4">Approvati:</dt>
+                                    <dd class="col-8 text-success">${formatNumber(data.approved_messages)}</dd>
+                                    
+                                    <dt class="col-4">Rifiutati:</dt>
+                                    <dd class="col-8 text-danger">${formatNumber(data.rejected_messages)}</dd>
+                                    
+                                    <dt class="col-4">Domande:</dt>
+                                    <dd class="col-8">${formatNumber(data.questions)}</dd>
+                                </dl>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="col-md-6">
+                        <div class="card">
+                            <div class="card-header">
+                                <h6 class="mb-0">Statistiche</h6>
+                            </div>
+                            <div class="card-body">
+                                <div class="mb-3">
+                                    <label class="form-label">Tasso di Approvazione</label>
+                                    <div class="progress">
+                                        <div class="progress-bar bg-${data.approval_rate >= 80 ? 'success' : data.approval_rate >= 50 ? 'warning' : 'danger'}" 
+                                             style="width: ${data.approval_rate}%">
+                                            ${data.approval_rate.toFixed(1)}%
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <label class="form-label">Gruppi in cui ha scritto</label>
+                                    <div class="d-flex flex-wrap gap-1">
+                                        ${data.groups.map(group => `<span class="badge bg-primary">${group}</span>`).join('')}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="col-12">
+                        <div class="card">
+                            <div class="card-header">
+                                <h6 class="mb-0">Ultimi Messaggi</h6>
+                            </div>
+                            <div class="card-body">
+                                ${data.recent_messages.length > 0 ? `
+                                    <div class="table-responsive">
+                                        <table class="table table-sm">
+                                            <thead>
+                                                <tr>
+                                                    <th>Data</th>
+                                                    <th>Messaggio</th>
+                                                    <th>Gruppo</th>
+                                                    <th>Stato</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                ${data.recent_messages.slice(0, 5).map(msg => `
+                                                    <tr>
+                                                        <td>${formatDate(msg.timestamp)}</td>
+                                                        <td class="text-truncate" style="max-width: 200px;">${msg.messaggio}</td>
+                                                        <td>${msg.group_name}</td>
+                                                        <td>
+                                                            <span class="badge bg-${msg.approvato === 'SI' ? 'success' : 'danger'}">
+                                                                ${msg.approvato === 'SI' ? 'Approvato' : 'Rifiutato'}
+                                                            </span>
+                                                        </td>
+                                                    </tr>
+                                                `).join('')}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                ` : '<p class="text-muted">Nessun messaggio trovato</p>'}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            document.getElementById('user-details-content').innerHTML = content;
+        })
+        .catch(error => {
+            document.getElementById('user-details-loading').style.display = 'none';
+            document.getElementById('user-details-content').style.display = 'block';
+            document.getElementById('user-details-content').innerHTML = `
+                <div class="alert alert-danger">
+                    <i class="bi bi-exclamation-triangle me-2"></i>
+                    Errore durante il caricamento dei dettagli utente
+                </div>
+            `;
+            console.error('Errore dettagli utente:', error);
+        });
+}
+
+// Search user
+function searchUser() {
+    const userIdInput = document.getElementById('quick-search-user-id');
+    const userId = userIdInput.value.trim();
+    
+    if (!userId) {
+        showAlert('Inserisci un User ID valido', 'warning');
+        return;
+    }
+    
+    if (!/^\d+$/.test(userId)) {
+        showAlert('User ID deve essere un numero', 'warning');
+        return;
+    }
+    
+    viewUserDetails(userId);
+    userIdInput.value = '';
+}
+
+// Refresh table
+function refreshTable() {
+    window.location.reload();
+}
+
+// Filter by days
+function filterByDays(days) {
+    const rows = document.querySelectorAll('tbody tr[data-user-id]');
+    let visibleCount = 0;
+    
+    rows.forEach(row => {
+        const daysBadge = row.querySelector('.badge');
+        const daysText = daysBadge.textContent;
+        const daysNumber = parseInt(daysText.match(/\d+/)[0]);
+        
+        if (daysNumber <= days) {
+            row.style.display = '';
+            visibleCount++;
+        } else {
+            row.style.display = 'none';
+        }
+    });
+    
+    showAlert(`Filtro applicato: ${visibleCount} utenti bannati negli ultimi ${days} giorni`, 'info');
+}
+
+// Enter key handlers
+document.getElementById('quick-ban-user-id').addEventListener('keypress', function(e) {
+    if (e.key === 'Enter') {
+        quickBanUser();
+    }
+});
+
+document.getElementById('quick-search-user-id').addEventListener('keypress', function(e) {
+    if (e.key === 'Enter') {
+        searchUser();
+    }
+});
+
+// Load unban statistics on page load
+document.addEventListener('DOMContentLoaded', function() {
+    loadUnbanStatistics();
+});
+
+function loadUnbanStatistics() {
+    // Carica statistiche unban se disponibili
+    // Questo sarà implementato quando aggiungeremo l'endpoint API
+    fetch('/api/analytics/unban-stats')
+        .then(response => response.json())
+        .then(data => {
+            if (data.total_unbans !== undefined) {
+                document.getElementById('total-unbans').textContent = formatNumber(data.total_unbans);
+            }
+        })
+        .catch(error => {
+            console.log('Statistiche unban non disponibili:', error);
+            document.getElementById('total-unbans').textContent = '0';
+        });
+}
+</script>
+{% endblock %}

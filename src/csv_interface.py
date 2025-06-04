@@ -5,6 +5,8 @@ from datetime import datetime
 from typing import Dict, List, Optional
 import threading
 import json
+import shutil
+import tempfile
 
 try:
     from .config_manager import ConfigManager  # Import relativo quando usato come modulo
@@ -16,6 +18,8 @@ class CSVDataManager:
     Gestisce l'interazione con file CSV per salvare dati di moderazione.
     Replica le funzionalità di GoogleSheetsManager ma usando CSV locali.
     Progettato per funzionare in parallelo con Google Sheets.
+    
+    AGGIORNAMENTO: Aggiunto supporto per unban (rimozione dal CSV banned_users)
     """
     
     def __init__(self, logger: logging.Logger, config_manager: ConfigManager):
@@ -37,6 +41,11 @@ class CSVDataManager:
             "banned_users": {
                 "filename": "banned_users.csv",
                 "headers": ["user_id", "timestamp", "motivo"]
+            },
+            # NUOVO: Tabella per storico unban
+            "unban_history": {
+                "filename": "unban_history.csv",
+                "headers": ["user_id", "original_ban_timestamp", "unban_timestamp", "unban_reason", "unbanned_by"]
             }
         }
         
@@ -175,6 +184,173 @@ class CSVDataManager:
             self.logger.info(f"Utente {user_id} ({username}) bannato con successo in CSV. Motivo: {motivo}")
             self._invalidate_banned_cache()  # Invalida la cache
         return success
+    
+    def unban_user(self, user_id: int, unban_reason: str = "Unban da dashboard", unbanned_by: str = "dashboard") -> bool:
+        """
+        NUOVO: Rimuove un utente dalla lista dei bannati nel file CSV 'banned_users'.
+        Sposta l'entry nel file di storico unban per mantenere traccia.
+        
+        Args:
+            user_id: ID dell'utente da sbannare
+            unban_reason: Motivo dell'unban
+            unbanned_by: Chi ha effettuato l'unban (dashboard, admin, etc.)
+            
+        Returns:
+            bool: True se l'operazione è riuscita, False altrimenti
+        """
+        if not self.enabled:
+            self.logger.debug("CSV disabilitato, skip unban utente")
+            return True
+            
+        if not self.is_user_banned(user_id):
+            self.logger.info(f"Utente {user_id} non è nella lista dei bannati CSV.")
+            return True  # Considerato successo se non è bannato
+        
+        try:
+            with self.lock:  # Thread safety per operazione complessa
+                # 1. Leggi il file banned_users e trova l'entry dell'utente
+                banned_file_path = os.path.join(self.data_dir, self.csv_structure["banned_users"]["filename"])
+                unban_history_file_path = os.path.join(self.data_dir, self.csv_structure["unban_history"]["filename"])
+                
+                user_ban_data = None
+                remaining_rows = []
+                
+                # Leggi e filtra il file banned_users
+                with open(banned_file_path, 'r', encoding='utf-8') as csvfile:
+                    reader = csv.reader(csvfile)
+                    headers = next(reader, [])  # Leggi headers
+                    remaining_rows.append(headers)  # Mantieni headers
+                    
+                    for row in reader:
+                        if len(row) >= 1 and row[0] == str(user_id):
+                            # Trovata l'entry dell'utente da rimuovere
+                            user_ban_data = row
+                            self.logger.debug(f"Trovata entry ban per utente {user_id}: {row}")
+                        else:
+                            # Mantieni tutte le altre righe
+                            remaining_rows.append(row)
+                
+                if not user_ban_data:
+                    self.logger.warning(f"Entry ban per utente {user_id} non trovata nel CSV")
+                    return False
+                
+                # 2. Salva l'entry nell'unban_history prima di rimuoverla
+                unban_history_row = [
+                    str(user_id),
+                    user_ban_data[1] if len(user_ban_data) > 1 else "",  # original_ban_timestamp
+                    datetime.now().isoformat(),  # unban_timestamp
+                    unban_reason,
+                    unbanned_by
+                ]
+                
+                # Crea file unban_history se non esiste
+                if not os.path.exists(unban_history_file_path):
+                    with open(unban_history_file_path, 'w', newline='', encoding='utf-8') as csvfile:
+                        writer = csv.writer(csvfile)
+                        writer.writerow(self.csv_structure["unban_history"]["headers"])
+                
+                # Aggiungi entry allo storico unban
+                with open(unban_history_file_path, 'a', newline='', encoding='utf-8') as csvfile:
+                    writer = csv.writer(csvfile)
+                    writer.writerow(unban_history_row)
+                
+                # 3. Riscrivi il file banned_users senza l'utente unbannato
+                # Usa file temporaneo per sicurezza
+                temp_file_path = banned_file_path + '.tmp'
+                
+                with open(temp_file_path, 'w', newline='', encoding='utf-8') as csvfile:
+                    writer = csv.writer(csvfile)
+                    writer.writerows(remaining_rows)
+                
+                # 4. Sostituisci il file originale con quello aggiornato
+                shutil.move(temp_file_path, banned_file_path)
+                
+                # 5. Invalida cache e log successo
+                self._invalidate_banned_cache()
+                
+                ban_motivo = user_ban_data[2] if len(user_ban_data) > 2 else "Motivo sconosciuto"
+                ban_timestamp = user_ban_data[1] if len(user_ban_data) > 1 else "Data sconosciuta"
+                
+                self.logger.info(
+                    f"Utente {user_id} unbannato con successo da CSV. "
+                    f"Ban originale: {ban_timestamp} ({ban_motivo}). "
+                    f"Unban: {unban_reason} by {unbanned_by}"
+                )
+                
+                return True
+                
+        except Exception as e:
+            self.logger.error(f"Errore durante unban utente {user_id}: {e}", exc_info=True)
+            
+            # Cleanup file temporaneo se esiste
+            temp_file_path = os.path.join(self.data_dir, self.csv_structure["banned_users"]["filename"] + '.tmp')
+            if os.path.exists(temp_file_path):
+                try:
+                    os.remove(temp_file_path)
+                except:
+                    pass
+            
+            return False
+    
+    def get_unban_history(self, limit: int = None) -> List[Dict]:
+        """
+        NUOVO: Restituisce lo storico degli unban.
+        
+        Args:
+            limit: Numero massimo di record da restituire
+            
+        Returns:
+            Lista di dizionari con storico unban
+        """
+        return self.read_csv_data("unban_history", limit=limit)
+    
+    def get_user_ban_history(self, user_id: int) -> Dict:
+        """
+        NUOVO: Restituisce lo storico completo di ban/unban per un utente specifico.
+        
+        Args:
+            user_id: ID dell'utente
+            
+        Returns:
+            Dizionario con storico completo dell'utente
+        """
+        try:
+            # Controlla se attualmente bannato
+            currently_banned = self.is_user_banned(user_id)
+            
+            # Cerca negli unban
+            unban_history = self.get_unban_history()
+            user_unbans = [record for record in unban_history if record.get('user_id') == str(user_id)]
+            
+            # Se attualmente bannato, cerca i dettagli del ban corrente
+            current_ban_details = None
+            if currently_banned:
+                banned_users = self.read_csv_data("banned_users")
+                for ban_record in banned_users:
+                    if ban_record.get('user_id') == str(user_id):
+                        current_ban_details = ban_record
+                        break
+            
+            return {
+                'user_id': user_id,
+                'currently_banned': currently_banned,
+                'current_ban_details': current_ban_details,
+                'unban_history': user_unbans,
+                'total_bans': len(user_unbans) + (1 if currently_banned else 0),
+                'total_unbans': len(user_unbans)
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Errore nel recupero storico ban/unban per utente {user_id}: {e}")
+            return {
+                'user_id': user_id,
+                'currently_banned': False,
+                'current_ban_details': None,
+                'unban_history': [],
+                'total_bans': 0,
+                'total_unbans': 0,
+                'error': str(e)
+            }
     
     def is_user_banned(self, user_id: int) -> bool:
         """Verifica se un utente è presente nella lista dei bannati CSV. API identica a GoogleSheetsManager."""

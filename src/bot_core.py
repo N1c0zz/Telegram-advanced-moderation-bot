@@ -16,20 +16,22 @@ from telegram.error import NetworkError, TimedOut
 # Importazioni locali dal package src
 from .config_manager import ConfigManager
 from .logger_config import LoggingConfigurator
-from .sheets_interface import GoogleSheetsManager
-from .backup_handler import SheetBackupManager
 from .moderation_rules import AdvancedModerationBotLogic
 from .cache_utils import MessageCache
 from .spam_detection import CrossGroupSpamDetector
 from .user_counters import UserMessageCounters
 from .csv_interface import CSVDataManager
+# Nuova importazione per il sistema di gestione utenti
+from .user_management import UserManagementSystem
 
 
 class TelegramModerationBot:
     """
     Classe principale del bot Telegram per la moderazione avanzata.
-    Orchestra i vari componenti come configurazione, logging, interazione con Google Sheets,
+    Orchestra i vari componenti come configurazione, logging, 
     logica di moderazione, e gestione dei comandi/messaggi Telegram.
+    
+    AGGIORNAMENTO: Rimosso Google Sheets, solo CSV. Aggiunto sistema di gestione utenti.
     """
     def __init__(self):
         load_dotenv()
@@ -48,22 +50,19 @@ class TelegramModerationBot:
         if not os.getenv("OPENAI_API_KEY"):
             self.logger.warning("Chiave API OpenAI (OPENAI_API_KEY) non trovata. L'analisi AI sarà limitata.")
 
-        # Google Sheets (esistente)
-        self.sheets_manager = GoogleSheetsManager(self.logger, self.config_manager)
+        # RIMOZIONE: Non più Google Sheets
+        # self.sheets_manager = GoogleSheetsManager(self.logger, self.config_manager)
 
-        # CSV Manager (nuovo) - importa in cima al file
-        from .csv_interface import CSVDataManager
+        # CSV Manager (ora sistema principale)
         self.csv_manager = CSVDataManager(self.logger, self.config_manager)
         
-        self.moderation_logic = AdvancedModerationBotLogic(self.config_manager, self.logger) # Passa solo config e logger
+        # NUOVO: Sistema di gestione utenti integrato
+        self.user_manager = UserManagementSystem(self.logger, self.csv_manager, self.config_manager)
+        
+        self.moderation_logic = AdvancedModerationBotLogic(self.config_manager, self.logger)
 
-        self.backup_manager = SheetBackupManager(
-            self.sheets_manager,
-            self.logger,
-            self.config_manager.get('backup_directory', 'backups')
-        )
-        backup_interval = self.config_manager.get_nested('backup_interval_days', default=7)
-        self.backup_manager.schedule_regular_backups(interval_days=backup_interval)
+        # RIMOZIONE: Non più backup Google Sheets
+        # Non serve più SheetBackupManager dato che gestiamo solo CSV
 
         self.cross_group_spam_detector = CrossGroupSpamDetector(
             time_window_hours=self.config_manager.get_nested('spam_detector', 'time_window_hours', default=1),
@@ -91,21 +90,198 @@ class TelegramModerationBot:
         self.bot_stats: Dict[str, int] = {
             'total_messages_processed': 0,
             'messages_deleted_total': 0,
-            'messages_deleted_by_direct_filter': 0, # Sostituisce direct_filter_deletions di AdvancedModerationBot
-            'messages_deleted_by_ai_filter': 0, # Sostituisce ai_filter_deletions
+            'messages_deleted_by_direct_filter': 0,
+            'messages_deleted_by_ai_filter': 0,
             'edited_messages_detected': 0,
-            'edited_messages_deleted': 0
+            'edited_messages_deleted': 0,
+            'users_banned_total': 0,  # NUOVO: Contatore ban
+            'users_unbanned_total': 0,  # NUOVO: Contatore unban
         }
-        self.application: Optional[Application] = None # Inizializzato in start()
-        self._operation_locks: Dict[str, bool] = {} # Semplice lock in memoria
+        self.application: Optional[Application] = None
+        self._operation_locks: Dict[str, bool] = {}
 
-    # --- Lock Management ---
+        # NUOVO: Stato di running per dashboard
+        self._is_running: bool = False
+        self._start_time: Optional[datetime] = None
+
+    # --- NUOVI METODI PER DASHBOARD ---
+    
+    def get_bot_status(self) -> Dict[str, Any]:
+        """Restituisce lo stato attuale del bot per la dashboard."""
+        uptime = None
+        if self._start_time:
+            uptime = int((datetime.now() - self._start_time).total_seconds())
+            
+        return {
+            'is_running': self._is_running,
+            'start_time': self._start_time.isoformat() if self._start_time else None,
+            'uptime_seconds': uptime,
+            'night_mode_active': self.is_night_mode_period_active(-1),
+            'scheduler_active': self.scheduler_active,
+            'stats': self.get_comprehensive_stats()
+        }
+    
+    def get_comprehensive_stats(self) -> Dict[str, Any]:
+        """Restituisce statistiche complete per la dashboard."""
+        mod_stats = self.moderation_logic.get_stats()
+        counter_stats = self.user_counters.get_stats()
+        csv_stats = self.csv_manager.get_csv_stats()
+        
+        return {
+            'bot_stats': self.bot_stats,
+            'moderation_stats': mod_stats,
+            'user_counter_stats': counter_stats,
+            'csv_stats': csv_stats,
+            'night_mode_groups_count': len(self.get_night_mode_groups()),
+            'cache_stats': {
+                'message_cache_size': len(self.message_cache.messages),
+                'analysis_cache_size': len(self.moderation_logic.analysis_cache.cache)
+            }
+        }
+
+    def get_recent_messages(self, limit: int = 30) -> List[Dict[str, Any]]:
+        """Restituisce gli ultimi messaggi processati per la dashboard."""
+        return self.csv_manager.read_csv_data("messages", limit=limit)
+    
+    def get_recent_deleted_messages(self, limit: int = 20) -> List[Dict[str, Any]]:
+        """Restituisce gli ultimi messaggi eliminati per la dashboard."""
+        all_messages = self.csv_manager.read_csv_data("messages")
+        deleted_messages = [msg for msg in all_messages if msg.get('approvato') == 'NO']
+        return deleted_messages[:limit] if deleted_messages else []
+    
+    def get_recent_banned_users(self, limit: int = 30) -> List[Dict[str, Any]]:
+        """Restituisce gli ultimi utenti bannati per la dashboard."""
+        return self.csv_manager.read_csv_data("banned_users", limit=limit)
+
+    def reload_configuration(self) -> bool:
+        """Ricarica la configurazione da file per la dashboard."""
+        try:
+            old_config = self.config_manager.config.copy()
+            self.config_manager.config = self.config_manager.load_config()
+            
+            # Aggiorna componenti che dipendono dalla configurazione
+            self.moderation_logic.banned_words = self.config_manager.get('banned_words', [])
+            self.moderation_logic.whitelist_words = self.config_manager.get('whitelist_words', [])
+            self.moderation_logic.allowed_languages = self.config_manager.get('allowed_languages', ["it"])
+            
+            # Re-schedule night mode se gli orari sono cambiati
+            if (old_config.get('night_mode', {}) != self.config_manager.get('night_mode', {})):
+                schedule.clear('night_mode')
+                self._schedule_night_mode_jobs()
+            
+            self.logger.info("Configurazione ricaricata con successo dalla dashboard")
+            return True
+        except Exception as e:
+            self.logger.error(f"Errore ricaricamento configurazione: {e}")
+            return False
+
+    # --- API per ban/unban da dashboard ---
+    
+    async def ban_user_from_dashboard(self, user_id: int, reason: str = "Ban da dashboard") -> Dict[str, Any]:
+        """Banna un utente da tutti i gruppi (chiamata da dashboard)."""
+        try:
+            # Ban logico nel database
+            username = f"UserID_{user_id}"
+            ban_success = self.csv_manager.ban_user(user_id, username, reason)
+            
+            if not ban_success:
+                return {"success": False, "message": "Errore nel salvataggio del ban nel database"}
+            
+            # Ban fisico dai gruppi Telegram
+            if self.application and self.application.bot:
+                target_groups = self.get_night_mode_groups()
+                results = await self._execute_multi_group_ban(self.application.bot, user_id, target_groups, reason)
+                success_count = sum(results.values())
+                
+                self.bot_stats['users_banned_total'] += 1
+                
+                return {
+                    "success": True,
+                    "message": f"Utente {user_id} bannato con successo",
+                    "groups_banned": success_count,
+                    "total_groups": len(target_groups),
+                    "details": results
+                }
+            else:
+                # Solo ban logico se il bot non è attivo
+                return {
+                    "success": True,
+                    "message": f"Ban logico applicato. Ban fisico dai gruppi verrà applicato al prossimo avvio del bot.",
+                    "groups_banned": 0,
+                    "total_groups": 0
+                }
+                
+        except Exception as e:
+            self.logger.error(f"Errore ban utente da dashboard: {e}")
+            return {"success": False, "message": f"Errore: {str(e)}"}
+
+    async def unban_user_from_dashboard(self, user_id: int, unban_reason: str = "Unban da dashboard") -> Dict[str, Any]:
+        """Sbanna un utente da tutti i gruppi (chiamata da dashboard)."""
+        try:
+            # 1. UNBAN LOGICO: Rimuovi dal CSV banned_users
+            csv_unban_success = self.csv_manager.unban_user(
+                user_id=user_id, 
+                unban_reason=unban_reason, 
+                unbanned_by="dashboard"
+            )
+            
+            if not csv_unban_success:
+                return {
+                    "success": False,
+                    "message": f"Errore durante rimozione dell'utente {user_id} dal database CSV"
+                }
+            
+            # 2. UNBAN FISICO: Rimuovi dai gruppi Telegram
+            telegram_results = {}
+            telegram_success_count = 0
+            
+            if self.application and self.application.bot:
+                target_groups = self.get_night_mode_groups()
+                
+                for chat_id in target_groups:
+                    try:
+                        await self.application.bot.unban_chat_member(chat_id, user_id, only_if_banned=True)
+                        telegram_results[chat_id] = True
+                        telegram_success_count += 1
+                    except Exception as e:
+                        telegram_results[chat_id] = False
+                        self.logger.warning(f"Errore unban Telegram utente {user_id} da gruppo {chat_id}: {e}")
+                
+                self.bot_stats['users_unbanned_total'] += 1
+                
+                return {
+                    "success": True,
+                    "message": f"Utente {user_id} unbannato completamente",
+                    "csv_unban": True,
+                    "telegram_unban": {
+                        "groups_unbanned": telegram_success_count,
+                        "total_groups": len(target_groups),
+                        "details": telegram_results
+                    },
+                    "note": "Utente rimosso dal database e dai gruppi Telegram. Storico mantenuto in unban_history."
+                }
+            else:
+                # Solo unban logico se bot non attivo
+                return {
+                    "success": True,
+                    "message": f"Utente {user_id} rimosso dal database",
+                    "csv_unban": True,
+                    "telegram_unban": {
+                        "groups_unbanned": 0,
+                        "total_groups": 0,
+                        "details": {}
+                    },
+                    "note": "Bot non attivo. Solo unban logico completato. Eseguire unban Telegram manualmente quando bot sarà attivo."
+                }
+                
+        except Exception as e:
+            self.logger.error(f"Errore unban utente da dashboard: {e}")
+            return {"success": False, "message": f"Errore: {str(e)}"}
+
+    # --- Lock Management (invariato) ---
     def _acquire_lock(self, operation_name: str, timeout: int = 60) -> bool:
-        """
-        Tenta di acquisire un lock basato su file per un'operazione.
-        Restituisce True se il lock è acquisito, False altrimenti.
-        """
-        lock_file_path = f"{operation_name}.lock" # Creato nella CWD
+        """Tenta di acquisire un lock basato su file per un'operazione."""
+        lock_file_path = f"{operation_name}.lock"
         
         if os.path.exists(lock_file_path):
             try:
@@ -115,10 +291,10 @@ class TelegramModerationBot:
                     os.remove(lock_file_path)
                 else:
                     self.logger.debug(f"Lock per '{operation_name}' ({lock_file_path}) già attivo.")
-                    return False # Lock valido esistente
+                    return False
             except OSError as e:
                 self.logger.error(f"Errore nel controllo del lock file '{lock_file_path}': {e}")
-                return False # Non sicuro procedere
+                return False
 
         try:
             with open(lock_file_path, 'w') as f:
@@ -138,48 +314,38 @@ class TelegramModerationBot:
                 self.logger.debug(f"Lock rilasciato per '{operation_name}' ({lock_file_path}).")
         except OSError as e:
             self.logger.error(f"Errore nel rilascio del lock file '{lock_file_path}': {e}")
-    
-    # --- Safe Coroutine Execution ---
+
+    # --- Safe Coroutine Execution (invariato) ---
     def _safe_run_coroutine(self, coroutine_func: callable, description: str = "operazione asincrona"):
-        """
-        Esegue una coroutine in modo sicuro, preferendo il loop dell'applicazione Telegram
-        o un nuovo loop se necessario. `coroutine_func` deve essere una funzione che
-        prende un'istanza di `telegram.Bot` come primo argomento e restituisce una coroutine.
-        """
+        """Esegue una coroutine in modo sicuro."""
         if self.application and hasattr(self.application, '_loop') and self.application._loop and self.application._loop.is_running():
             bot_instance = self.application.bot
-            actual_coroutine = coroutine_func(bot_instance) # Crea la coroutine passando il bot dell'app
+            actual_coroutine = coroutine_func(bot_instance)
             future = asyncio.run_coroutine_threadsafe(actual_coroutine, self.application.loop)
             try:
-                return future.result(timeout=60) # Timeout per l'operazione
+                return future.result(timeout=60)
             except concurrent.futures.TimeoutError:
                 self.logger.error(f"Timeout durante l'esecuzione di '{description}' sul loop principale.")
             except Exception as e_future:
                 self.logger.error(f"Errore futuro durante l'esecuzione di '{description}': {e_future}", exc_info=True)
         else:
             self.logger.warning(f"Loop dell'applicazione non disponibile per '{description}'. Esecuzione in un loop temporaneo.")
-            # Questo blocco è più complesso e potenzialmente problematico per la gestione delle risorse del bot temporaneo.
-            # Per operazioni programmate (schedule), assicurarsi che `self.application` sia disponibile.
-            # Se `self.application` non è ancora inizializzato, questa parte non dovrebbe essere chiamata.
-            # Mantengo la logica originale per ora, ma con cautela.
             new_loop = asyncio.new_event_loop()
             asyncio.set_event_loop(new_loop)
             temp_bot_instance = None
             try:
                 temp_bot_instance = Bot(token=self.token)
-                actual_coroutine = coroutine_func(temp_bot_instance) # Crea coroutine con bot temporaneo
+                actual_coroutine = coroutine_func(temp_bot_instance)
                 result = new_loop.run_until_complete(actual_coroutine)
-                # Gestione chiusura risorse bot temporaneo
-                if hasattr(temp_bot_instance, '_client') and hasattr(temp_bot_instance._client, 'shutdown'): # PTB v20+
+                if hasattr(temp_bot_instance, '_client') and hasattr(temp_bot_instance._client, 'shutdown'):
                      new_loop.run_until_complete(temp_bot_instance._client.shutdown())
-                elif hasattr(temp_bot_instance, 'shutdown'): # Vecchie versioni
+                elif hasattr(temp_bot_instance, 'shutdown'):
                      new_loop.run_until_complete(temp_bot_instance.shutdown())
                 return result
             except Exception as e_inner:
                 self.logger.error(f"Errore durante l'esecuzione di '{description}' nel loop temporaneo: {e_inner}", exc_info=True)
             finally:
-                if temp_bot_instance: # Assicurati che sia stato creato
-                    # Tentativo extra di chiusura se non fatto prima
+                if temp_bot_instance:
                     try:
                         if hasattr(temp_bot_instance, '_client') and hasattr(temp_bot_instance._client, 'shutdown') and not new_loop.is_closed():
                             new_loop.run_until_complete(temp_bot_instance._client.shutdown())
@@ -188,27 +354,23 @@ class TelegramModerationBot:
 
                 if not new_loop.is_closed():
                     new_loop.close()
-                asyncio.set_event_loop(None) # Ripristina
+                asyncio.set_event_loop(None)
         return None
 
-    # --- Night Mode Logic ---
+    # --- Night Mode Logic (invariato) ---
     def get_night_mode_groups(self) -> List[int]:
         """Restituisce la lista degli ID dei gruppi configurati per la Night Mode."""
         return self.config_manager.get_nested('night_mode', 'night_mode_groups', default=[])
 
     def is_night_mode_period_active(self, chat_id_to_check_config_for: int = -1) -> bool:
-        """
-        Verifica se l'orario corrente rientra nel periodo di Night Mode definito nella configurazione.
-        :param chat_id_to_check_config_for: Se fornito e diverso da -1, verifica anche che il
-                                             gruppo sia abilitato per la night mode. Se -1, controlla solo l'orario.
-        """
+        """Verifica se l'orario corrente rientra nel periodo di Night Mode."""
         nm_config = self.config_manager.get('night_mode', {})
         if not nm_config.get('enabled', True):
             return False
 
-        if chat_id_to_check_config_for != -1: # -1 è un valore speciale per indicare solo controllo orario
+        if chat_id_to_check_config_for != -1:
             if chat_id_to_check_config_for not in nm_config.get('night_mode_groups', []):
-                return False # Gruppo non configurato per night mode
+                return False
 
         start_str = nm_config.get('start_hour', '23:00')
         end_str = nm_config.get('end_hour', '07:00')
@@ -218,13 +380,13 @@ class TelegramModerationBot:
             end_time = datetime.strptime(end_str, '%H:%M').time()
         except ValueError:
             self.logger.error(f"Formato ora Night Mode non valido: start='{start_str}', end='{end_str}'. Usare HH:MM.")
-            return False # Default a non attivo se configurazione errata
+            return False
 
         now_time = datetime.now().time()
 
-        if start_time <= end_time:  # Night mode non attraversa la mezzanotte (es. 01:00 - 05:00)
+        if start_time <= end_time:
             return start_time <= now_time < end_time
-        else:  # Night mode attraversa la mezzanotte (es. 23:00 - 07:00)
+        else:
             return now_time >= start_time or now_time < end_time
 
     async def _apply_night_mode_permissions(self, bot: Bot, chat_id: int, activate: bool):
@@ -233,13 +395,12 @@ class TelegramModerationBot:
         try:
             chat_info = await bot.get_chat(chat_id)
             group_name_for_log = chat_info.title or group_name_for_log
-        except Exception: # Non bloccare se non riusciamo a prendere il nome
+        except Exception:
             pass
         
         nm_config = self.config_manager.get('night_mode', {})
 
         if activate:
-            # Salva permessi originali se non già fatto
             if chat_id not in self.original_group_permissions:
                 try:
                     current_chat = await bot.get_chat(chat_id)
@@ -249,66 +410,54 @@ class TelegramModerationBot:
                 except Exception as e:
                     self.logger.warning(f"Impossibile salvare i permessi originali per {group_name_for_log} ({chat_id}): {e}")
             
-            # Imposta permessi restrittivi
-            # Nota: la granularità dei permessi può variare con le versioni di python-telegram-bot
-            # Questo cerca di essere compatibile con versioni più recenti.
             try:
                 restricted_permissions = ChatPermissions(
                     can_send_messages=False, can_send_audios=False, can_send_documents=False,
                     can_send_photos=False, can_send_videos=False, can_send_video_notes=False,
                     can_send_voice_notes=False, can_send_polls=False, can_send_other_messages=False,
-                    can_add_web_page_previews=False, # Spesso True è OK anche in night mode
+                    can_add_web_page_previews=False,
                     can_change_info=False, can_invite_users=True, can_pin_messages=False
                 )
-            except TypeError: # Fallback per versioni più vecchie o diverse di PTB
+            except TypeError:
                  self.logger.debug("Usando ChatPermissions con meno parametri (fallback).")
                  restricted_permissions = ChatPermissions(can_send_messages=False, can_invite_users=True)
 
             await bot.set_chat_permissions(chat_id, restricted_permissions)
             self.logger.info(f"🌙 Night Mode ATTIVATA per {group_name_for_log} ({chat_id}).")
 
-            # Invia messaggio di notifica
             start_msg_template = nm_config.get('start_message', "⛔ Night Mode attiva fino alle {end_hour}.")
             end_hour_str = nm_config.get('end_hour', '07:00')
             start_msg = start_msg_template.format(end_hour=end_hour_str)
             
-            # Aggiungi info per nuovi membri
             start_msg += (
                 f"\n\nℹ️ Per i nuovi membri: questa è una restrizione temporanea. "
                 f"Potrai scrivere dalle {end_hour_str}."
             )
             try:
                 sent_notification = await bot.send_message(chat_id, start_msg)
-                # Unpinna vecchio messaggio se esiste
                 if chat_id in self.night_mode_messages_sent:
                     try:
                         await bot.unpin_chat_message(chat_id, self.night_mode_messages_sent[chat_id])
-                    except Exception: pass # Ignora se non pinnato o già rimosso
-                # Pinna nuovo messaggio e salva ID
-                # await bot.pin_chat_message(chat_id, sent_notification.message_id, disable_notification=True)
-                self.night_mode_messages_sent[chat_id] = sent_notification.message_id # Non lo pinno per non essere invasivo
+                    except Exception: pass
+                self.night_mode_messages_sent[chat_id] = sent_notification.message_id
             except Forbidden:
                  self.logger.warning(f"Impossibile inviare/pinnare messaggio Night Mode in {group_name_for_log} ({chat_id}). Permessi insufficienti?")
             except Exception as e:
                 self.logger.error(f"Errore invio messaggio Night Mode in {group_name_for_log} ({chat_id}): {e}")
 
-
         else: # Disattiva Night Mode
-            # Ripristina permessi
             if chat_id in self.original_group_permissions:
                 await bot.set_chat_permissions(chat_id, self.original_group_permissions[chat_id])
                 del self.original_group_permissions[chat_id]
                 self.logger.info(f"Permessi originali ripristinati per {group_name_for_log} ({chat_id}).")
             else:
-                # Fallback a permessi generici "tutto aperto"
-                # Stessa logica di compatibilità di prima
                 try:
                     default_permissions = ChatPermissions(
                         can_send_messages=True, can_send_audios=True, can_send_documents=True,
                         can_send_photos=True, can_send_videos=True, can_send_video_notes=True,
                         can_send_voice_notes=True, can_send_polls=True, can_send_other_messages=True,
-                        can_add_web_page_previews=True, can_change_info=False, # Admin only
-                        can_invite_users=True, can_pin_messages=False # Admin only
+                        can_add_web_page_previews=True, can_change_info=False,
+                        can_invite_users=True, can_pin_messages=False
                     )
                 except TypeError:
                     self.logger.debug("Usando ChatPermissions con meno parametri per ripristino (fallback).")
@@ -318,15 +467,12 @@ class TelegramModerationBot:
 
             self.logger.info(f"☀️ Night Mode DISATTIVATA per {group_name_for_log} ({chat_id}).")
 
-            # Rimuovi messaggio di notifica pinnato
             if chat_id in self.night_mode_messages_sent:
                 try:
-                    # await bot.unpin_chat_message(chat_id, self.night_mode_messages_sent[chat_id])
                     await bot.delete_message(chat_id, self.night_mode_messages_sent[chat_id])
                     del self.night_mode_messages_sent[chat_id]
                 except Exception as e:
                     self.logger.warning(f"Impossibile rimuovere messaggio Night Mode in {group_name_for_log} ({chat_id}): {e}")
-
 
     async def _task_manage_night_mode_for_all_groups(self, bot: Bot, activate: bool):
         """Task asincrono per (dis)attivare la Night Mode su tutti i gruppi configurati."""
@@ -338,29 +484,25 @@ class TelegramModerationBot:
         action_str = "ATTIVAZIONE" if activate else "DISATTIVAZIONE"
         self.logger.info(f"Inizio {action_str} Night Mode per {len(groups_to_manage)} gruppi.")
         
-        # Imposta periodo di grazia solo all'attivazione
         if activate:
             self.night_mode_transition_active = True
             self.night_mode_grace_period_end = datetime.now() + timedelta(seconds=self.config_manager.get_nested('night_mode', 'grace_period_seconds', default=15))
 
-
         for chat_id in groups_to_manage:
             try:
                 await self._apply_night_mode_permissions(bot, chat_id, activate)
-            except Forbidden: # Errore di permessi specifici del bot nel gruppo
+            except Forbidden:
                 self.logger.error(f"PERMESSI INSUFFICIENTI per {'attivare' if activate else 'disattivare'} Night Mode in chat {chat_id}. Il bot è admin con i permessi necessari?")
-            except BadRequest as br: # Altri errori API Telegram
+            except BadRequest as br:
                 self.logger.error(f"Errore BadRequest (Telegram API) per chat {chat_id} durante {action_str} Night Mode: {br}")
             except Exception as e:
                 self.logger.error(f"Errore generico per chat {chat_id} durante {action_str} Night Mode: {e}", exc_info=True)
         
-        # Termina periodo di grazia solo dopo disattivazione o se non si attiva
         if not activate:
             self.night_mode_transition_active = False
             self.night_mode_grace_period_end = None
 
         self.logger.info(f"Completata {action_str} Night Mode per i gruppi configurati.")
-
 
     def _scheduled_activate_night_mode(self):
         """Metodo chiamato da `schedule` per attivare la Night Mode."""
@@ -397,7 +539,6 @@ class TelegramModerationBot:
         end_str = nm_config.get('end_hour', '07:00')
 
         try:
-            # Valida formato ora
             datetime.strptime(start_str, '%H:%M')
             datetime.strptime(end_str, '%H:%M')
 
@@ -407,8 +548,7 @@ class TelegramModerationBot:
         except ValueError:
             self.logger.error(f"Formato ora non valido per Night Mode ('{start_str}' o '{end_str}'). Job non pianificati.")
 
-
-    # --- Message Handlers ---
+    # --- Message Handlers (aggiornati per rimuovere Google Sheets) ---
     async def _handle_message_moderation(self, update: Update, context: ContextTypes.DEFAULT_TYPE, is_edited: bool = False):
         """Logica di moderazione centrale per messaggi nuovi o modificati."""
         message = update.effective_message
@@ -429,36 +569,34 @@ class TelegramModerationBot:
         message_text = message.text
         message_id = message.message_id
 
-        # DEBUG: Log ogni messaggio che arriva
         self.logger.info(f"🔍 DEBUG: Messaggio ricevuto da {username}: '{message_text}'")
         self.logger.info(f"🔍 DEBUG: Lunghezza messaggio: {len(message_text)} caratteri")
 
-        # Aggiungi messaggio alla cache
         if not is_edited:
             self.message_cache.add_message(chat_id, user_id, message_id, message_text)
             total_user_messages = self.user_counters.increment_and_get_count(user_id, chat_id)
         else:
             total_user_messages = self.user_counters.get_count(user_id, chat_id)
 
-        # ===== CONTROLLI PRIORITARI (NON POSSONO ESSERE SALTATI) =====
+        # ===== CONTROLLI PRIORITARI =====
         
-        # 1. UTENTI ESENTI (ADMIN) - CONTROLLO PRIORITARIO
+        # 1. UTENTI ESENTI (ADMIN)
         exempt_users_list = self.config_manager.get('exempt_users', [])
         if user_id in exempt_users_list or username in exempt_users_list:
             self.logger.info(f"Messaggio {'modificato ' if is_edited else ''}da utente esente {username} ({user_id}) in {group_name} ({chat_id}).")
-            self.sheets_manager.save_admin_message(message_text, user_id, username, chat_id, group_name)
+            # RIMOZIONE: Non più Google Sheets
+            # self.sheets_manager.save_admin_message(message_text, user_id, username, chat_id, group_name)
             self.csv_manager.save_admin_message(message_text, user_id, username, chat_id, group_name)
             return
 
         # 2. UTENTI GIÀ BANNATI - CONTROLLO CRITICO DI SICUREZZA
-        sheets_banned = self.sheets_manager.is_user_banned(user_id)
+        # RIMOZIONE: Non più Google Sheets
+        # sheets_banned = self.sheets_manager.is_user_banned(user_id)
         csv_banned = self.csv_manager.is_user_banned(user_id)
-        if sheets_banned or csv_banned:
+        if csv_banned:
             self.logger.info(f"🚨 UTENTE BANNATO RILEVATO: {username} ({user_id}) ha tentato di scrivere: '{message_text}'")
-            self.sheets_manager.save_message(
-                message_text, user_id, username, chat_id, group_name,
-                approvato=False, domanda=False, motivo_rifiuto=f"utente bannato (msg {'editato' if is_edited else 'nuovo'})"
-            )
+            # RIMOZIONE: Non più Google Sheets
+            # self.sheets_manager.save_message(...)
             self.csv_manager.save_message(
                 message_text, user_id, username, chat_id, group_name,
                 approvato=False, domanda=False, motivo_rifiuto=f"utente bannato (msg {'editato' if is_edited else 'nuovo'})"
@@ -489,31 +627,27 @@ class TelegramModerationBot:
                     self.logger.error(f"Errore cancellazione messaggio durante Night Mode anomala: {e}")
                 return
 
-        # ===== DOPO I CONTROLLI DI SICUREZZA: AUTO-APPROVAZIONI =====
+        # ===== AUTO-APPROVAZIONI =====
         
-        # 4. Messaggi molto brevi (≤4 caratteri) - DOPO controllo utenti bannati
+        # 4. Messaggi molto brevi (≤4 caratteri)
         auto_approve_short = self.config_manager.get('auto_approve_short_messages', True)
         short_max_length = self.config_manager.get('short_message_max_length', 4)
         
         if auto_approve_short and len(message_text.strip()) <= short_max_length:
             self.logger.info(f"✅ Messaggio molto breve auto-approvato da {username}: '{message_text}' (lunghezza: {len(message_text.strip())})")
-            self.sheets_manager.save_message(
-                message_text, user_id, username, chat_id, group_name,
-                approvato=True, domanda=False, motivo_rifiuto="auto-approvato (messaggio breve)"
-            )
+            # RIMOZIONE: Non più Google Sheets
+            # self.sheets_manager.save_message(...)
             self.csv_manager.save_message(
                 message_text, user_id, username, chat_id, group_name,
                 approvato=True, domanda=False, motivo_rifiuto="auto-approvato (messaggio breve)"
             )
             return
 
-        # 5. Whitelist critica - DOPO controllo utenti bannati
+        # 5. Whitelist critica
         if self.moderation_logic.contains_whitelist_word(message_text):
             self.logger.info(f"✅ Messaggio whitelist critica auto-approvato da {username}: '{message_text[:50]}...'")
-            self.sheets_manager.save_message(
-                message_text, user_id, username, chat_id, group_name,
-                approvato=True, domanda=False, motivo_rifiuto="auto-approvato (whitelist critica)"
-            )
+            # RIMOZIONE: Non più Google Sheets
+            # self.sheets_manager.save_message(...)
             self.csv_manager.save_message(
                 message_text, user_id, username, chat_id, group_name,
                 approvato=True, domanda=False, motivo_rifiuto="auto-approvato (whitelist critica)"
@@ -535,18 +669,16 @@ class TelegramModerationBot:
 
                 if is_inappropriate_content or is_direct_banned:
                     self.logger.warning(f"Contenuto SPAM CROSS-GRUPPO confermato come inappropriato. Ban e pulizia.")
-                    self.sheets_manager.ban_user(user_id, username, f"Spam cross-gruppo (similarità {similarity:.2f})")
-                    self.sheets_manager.save_message(
-                        message_text, user_id, username, chat_id, group_name,
-                        approvato=False, domanda=False,
-                        motivo_rifiuto=f"spam cross-gruppo inappropriato (similarità {similarity:.2f})"
-                    )
+                    # RIMOZIONE: Non più Google Sheets
+                    # self.sheets_manager.ban_user(user_id, username, f"Spam cross-gruppo (similarità {similarity:.2f})")
+                    # self.sheets_manager.save_message(...)
                     self.csv_manager.ban_user(user_id, username, f"Spam cross-gruppo (similarità {similarity:.2f})")
                     self.csv_manager.save_message(
                         message_text, user_id, username, chat_id, group_name,
                         approvato=False, domanda=False,
                         motivo_rifiuto=f"spam cross-gruppo inappropriato (similarità {similarity:.2f})"
                     )
+                    self.bot_stats['users_banned_total'] += 1
                     try:
                         await context.bot.delete_message(chat_id, message_id)
                         self.bot_stats['messages_deleted_total'] += 1
@@ -570,20 +702,22 @@ class TelegramModerationBot:
             
             if is_edited:
                 self.logger.warning(f"Ban per {username} ({user_id}): messaggio editato inappropriato - possibile elusione moderazione.")
-                self.sheets_manager.ban_user(user_id, username, "Messaggio editato inappropriato - elusione moderazione")
+                # RIMOZIONE: Non più Google Sheets
+                # self.sheets_manager.ban_user(user_id, username, "Messaggio editato inappropriato - elusione moderazione")
                 self.csv_manager.ban_user(user_id, username, "Messaggio editato inappropriato - elusione moderazione")
+                self.bot_stats['users_banned_total'] += 1
                 motivo_finale_rifiuto += " - Ban applicato (edit)"
             elif total_user_messages <= self.config_manager.get('first_messages_threshold', 3):
                 self.logger.warning(f"Ban per {username} ({user_id}): primo messaggio ({total_user_messages}/{self.config_manager.get('first_messages_threshold', 3)}) inappropriato.")
-                self.sheets_manager.ban_user(user_id, username, f"Primo messaggio inappropriato (msg #{total_user_messages})")
+                # RIMOZIONE: Non più Google Sheets
+                # self.sheets_manager.ban_user(user_id, username, f"Primo messaggio inappropriato (msg #{total_user_messages})")
                 self.csv_manager.ban_user(user_id, username, f"Primo messaggio inappropriato (msg #{total_user_messages})")
+                self.bot_stats['users_banned_total'] += 1
                 motivo_finale_rifiuto += f" - Ban applicato (primo msg #{total_user_messages})"
 
             # Cancella e salva
-            self.sheets_manager.save_message(
-                message_text, user_id, username, chat_id, group_name,
-                approvato=False, domanda=False, motivo_rifiuto=motivo_finale_rifiuto
-            )
+            # RIMOZIONE: Non più Google Sheets
+            # self.sheets_manager.save_message(...)
             self.csv_manager.save_message(
                 message_text, user_id, username, chat_id, group_name,
                 approvato=False, domanda=False, motivo_rifiuto=motivo_finale_rifiuto
@@ -602,7 +736,7 @@ class TelegramModerationBot:
                 self.logger.error(f"Errore cancellazione messaggio ({motivo_finale_rifiuto}): {e}")
             return
 
-        # 8. Controllo lingua di base - SEMPRE APPLICATO
+        # 8. Controllo lingua di base
         is_disallowed_lang_basic = self.moderation_logic.is_language_disallowed(message_text)
         self.logger.info(f"🔍 DEBUG: Lingua non consentita (controllo base): {is_disallowed_lang_basic}")
         
@@ -613,14 +747,14 @@ class TelegramModerationBot:
             
             if is_edited:
                 self.logger.warning(f"Ban per {username} ({user_id}): messaggio editato in lingua non consentita.")
-                self.sheets_manager.ban_user(user_id, username, "Edit in lingua non consentita")
+                # RIMOZIONE: Non più Google Sheets
+                # self.sheets_manager.ban_user(user_id, username, "Edit in lingua non consentita")
                 self.csv_manager.ban_user(user_id, username, "Edit in lingua non consentita")
+                self.bot_stats['users_banned_total'] += 1
                 motivo_finale_rifiuto += " - Ban applicato (lingua edit)"
 
-            self.sheets_manager.save_message(
-                message_text, user_id, username, chat_id, group_name,
-                approvato=False, domanda=False, motivo_rifiuto=motivo_finale_rifiuto
-            )
+            # RIMOZIONE: Non più Google Sheets
+            # self.sheets_manager.save_message(...)
             self.csv_manager.save_message(
                 message_text, user_id, username, chat_id, group_name,
                 approvato=False, domanda=False, motivo_rifiuto=motivo_finale_rifiuto
@@ -634,18 +768,14 @@ class TelegramModerationBot:
                 self.logger.error(f"Errore cancellazione messaggio (lingua): {e}")
             return
 
-        # ===== FINE CONTROLLI DI SICUREZZA PRIORITARI =====
-
         # 9. Controllo messaggi brevi/emoji (skip analisi AI costosa)
         is_short_message = self._is_short_or_emoji_message(message_text)
         self.logger.info(f"🔍 DEBUG: Considerato messaggio breve: {is_short_message}")
         
         if is_short_message:
             self.logger.info(f"Messaggio breve/emoji da {username}: controlli sicurezza OK, skip analisi AI costosa.")
-            self.sheets_manager.save_message(
-                message_text, user_id, username, chat_id, group_name,
-                approvato=True, domanda=False, motivo_rifiuto=""
-            )
+            # RIMOZIONE: Non più Google Sheets
+            # self.sheets_manager.save_message(...)
             self.csv_manager.save_message(
                 message_text, user_id, username, chat_id, group_name,
                 approvato=True, domanda=False, motivo_rifiuto=""
@@ -666,13 +796,17 @@ class TelegramModerationBot:
             
             if is_edited:
                 self.logger.warning(f"Ban per {username} ({user_id}): messaggio editato inappropriato (AI).")
-                self.sheets_manager.ban_user(user_id, username, "Edit inappropriato (AI)")
+                # RIMOZIONE: Non più Google Sheets
+                # self.sheets_manager.ban_user(user_id, username, "Edit inappropriato (AI)")
                 self.csv_manager.ban_user(user_id, username, "Edit inappropriato (AI)")
+                self.bot_stats['users_banned_total'] += 1
                 motivo_finale_rifiuto += " - Ban applicato (AI edit)"
             elif total_user_messages <= self.config_manager.get('first_messages_threshold', 3):
                 self.logger.warning(f"Ban per {username} ({user_id}): primo messaggio ({total_user_messages}/{self.config_manager.get('first_messages_threshold', 3)}) inappropriato (AI).")
-                self.sheets_manager.ban_user(user_id, username, f"Primo messaggio inappropriato AI (msg #{total_user_messages})")
+                # RIMOZIONE: Non più Google Sheets
+                # self.sheets_manager.ban_user(user_id, username, f"Primo messaggio inappropriato AI (msg #{total_user_messages})")
                 self.csv_manager.ban_user(user_id, username, f"Primo messaggio inappropriato AI (msg #{total_user_messages})")
+                self.bot_stats['users_banned_total'] += 1
                 motivo_finale_rifiuto += f" - Ban applicato (AI primo msg #{total_user_messages})"
 
         elif is_disallowed_lang_ai:
@@ -683,16 +817,16 @@ class TelegramModerationBot:
             
             if is_edited:
                 self.logger.warning(f"Ban per {username} ({user_id}): messaggio editato in lingua non consentita (AI).")
-                self.sheets_manager.ban_user(user_id, username, "Edit in lingua non consentita (AI)")
+                # RIMOZIONE: Non più Google Sheets
+                # self.sheets_manager.ban_user(user_id, username, "Edit in lingua non consentita (AI)")
                 self.csv_manager.ban_user(user_id, username, "Edit in lingua non consentita (AI)")
+                self.bot_stats['users_banned_total'] += 1
                 motivo_finale_rifiuto += " - Ban applicato (lingua AI edit)"
 
         # 11. Azione finale
         if action_taken:
-            self.sheets_manager.save_message(
-                message_text, user_id, username, chat_id, group_name,
-                approvato=False, domanda=is_question_ai, motivo_rifiuto=motivo_finale_rifiuto
-            )
+            # RIMOZIONE: Non più Google Sheets
+            # self.sheets_manager.save_message(...)
             self.csv_manager.save_message(
                 message_text, user_id, username, chat_id, group_name,
                 approvato=False, domanda=is_question_ai, motivo_rifiuto=motivo_finale_rifiuto
@@ -713,10 +847,8 @@ class TelegramModerationBot:
         else:
             # Messaggio approvato
             self.logger.info(f"Messaggio {'modificato ' if is_edited else ''}da {username} approvato. Domanda: {is_question_ai}.")
-            self.sheets_manager.save_message(
-                message_text, user_id, username, chat_id, group_name,
-                approvato=True, domanda=is_question_ai, motivo_rifiuto=""
-            )
+            # RIMOZIONE: Non più Google Sheets
+            # self.sheets_manager.save_message(...)
             self.csv_manager.save_message(
                 message_text, user_id, username, chat_id, group_name,
                 approvato=True, domanda=is_question_ai, motivo_rifiuto=""
@@ -734,7 +866,6 @@ class TelegramModerationBot:
         """Elimina i messaggi recenti di un utente (dalla cache) dai gruppi specificati."""
         deleted_count = 0
         for cid in chat_ids:
-            # Ottieni il nome del gruppo per il foglio
             group_name_for_sheets = f"Chat {cid}"
             try:
                 chat_details = await context.bot.get_chat(cid)
@@ -744,13 +875,8 @@ class TelegramModerationBot:
             recent_messages_in_chat = self.message_cache.get_recent_messages(cid, user_id)
             for msg_id, msg_text in recent_messages_in_chat:
                 try:
-                    # Salva su Google Sheets (esistente)
-                    self.sheets_manager.save_message(
-                        msg_text or "[Testo non disponibile]", user_id, username, cid, group_name_for_sheets,
-                        approvato=False, domanda=False,
-                        motivo_rifiuto="pulizia automatica per spam cross-gruppo"
-                    )
-                    # Salva anche su CSV (nuovo)
+                    # RIMOZIONE: Non più Google Sheets
+                    # self.sheets_manager.save_message(...)
                     self.csv_manager.save_message(
                         msg_text or "[Testo non disponibile]", user_id, username, cid, group_name_for_sheets,
                         approvato=False, domanda=False,
@@ -763,14 +889,12 @@ class TelegramModerationBot:
                     self.logger.warning(f"Impossibile eliminare vecchio messaggio {msg_id} in chat {cid} per spam cross-gruppo: {e}")
         self.logger.info(f"Pulizia spam cross-gruppo: eliminati {deleted_count} messaggi precedenti di {username} ({user_id}).")
 
-
     async def _send_temporary_notification(self, context: ContextTypes.DEFAULT_TYPE, chat_id: int, text: str, duration_seconds: int = 7):
         """Invia un messaggio di notifica che si auto-elimina."""
         try:
             sent_msg = await context.bot.send_message(chat_id, text)
-            # Crea un task per eliminare il messaggio dopo `duration_seconds`
             asyncio.create_task(self._delete_message_after_delay(context, chat_id, sent_msg.message_id, duration_seconds))
-        except Forbidden: # Il bot non può scrivere in questa chat (es. rimosso, bannato)
+        except Forbidden:
             self.logger.warning(f"Impossibile inviare notifica temporanea a chat {chat_id}: permessi insufficienti.")
         except Exception as e:
             self.logger.error(f"Errore invio notifica temporanea a chat {chat_id}: {e}")
@@ -780,13 +904,13 @@ class TelegramModerationBot:
         await asyncio.sleep(delay_seconds)
         try:
             await context.bot.delete_message(chat_id, message_id)
-        except Exception: # Il messaggio potrebbe essere già stato eliminato, o il bot non ha più i permessi
-            pass # Silently ignore
+        except Exception:
+            pass
 
-    # --- Command Handlers ---
+    # --- Command Handlers (aggiornati per rimuovere Google Sheets) ---
     async def _generic_admin_command_executor(self, update: Update, context: ContextTypes.DEFAULT_TYPE,
                                             command_name: str,
-                                            action_coroutine_provider: callable, # func(bot, chat_id?) -> coroutine
+                                            action_coroutine_provider: callable,
                                             success_message: str, failure_message: str,
                                             group_specific: bool = False):
         """Esecutore generico per comandi admin, con controllo permessi e lock."""
@@ -811,14 +935,11 @@ class TelegramModerationBot:
         try:
             await update.message.reply_text(f"⚙️ Esecuzione comando '{command_name}' in corso...")
             
-            # L'action_coroutine_provider DEVE restituire una coroutine.
-            # Se l'azione è per un gruppo specifico, passiamo il chat_id.
             if group_specific and chat_id_for_action is not None:
                 action_coro = action_coroutine_provider(context.bot, chat_id_for_action)
             else:
-                action_coro = action_coroutine_provider(context.bot) # Per azioni globali
+                action_coro = action_coroutine_provider(context.bot)
 
-            # Eseguiamo la coroutine direttamente dato che siamo in un handler async
             await action_coro
             
             await update.message.reply_text(success_message)
@@ -830,21 +951,15 @@ class TelegramModerationBot:
         finally:
             self._release_lock(lock_name)
 
-
     async def backup_now_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Attiva manualmente un backup dei dati di Google Sheets."""
-        # backup_sheets_to_csv è sincrono, quindi va eseguito in un thread per non bloccare l'async loop
-        async def sync_backup_action(_bot_unused): # _bot_unused per compatibilità con provider
-            # Backup Google Sheets
-            sheets_result = await asyncio.to_thread(self.backup_manager.backup_sheets_to_csv)
-            # Backup CSV
-            csv_result = self.csv_manager.backup_csv_files()
-            return sheets_result and csv_result
+        """Attiva manualmente un backup dei dati CSV."""
+        async def csv_backup_action(_bot_unused):
+            return self.csv_manager.backup_csv_files()
 
         await self._generic_admin_command_executor(
             update, context, "backup_now",
-            action_coroutine_provider=sync_backup_action,
-            success_message="✅ Backup di Google Sheets e CSV completato!",
+            action_coroutine_provider=csv_backup_action,
+            success_message="✅ Backup CSV completato!",
             failure_message="❌ Errore durante il backup manuale. Controlla i log.",
             group_specific=False
         )
@@ -856,11 +971,10 @@ class TelegramModerationBot:
             await update.message.reply_text("⚠️ Questo gruppo non è configurato per la Night Mode. Aggiungilo in `config.json`.")
             return
 
-        async def action(bot: Bot, cid: int): # cid è chat_id
+        async def action(bot: Bot, cid: int):
             await self._apply_night_mode_permissions(bot, cid, activate=True)
-            self.night_mode_transition_active = True # Abilita periodo di grazia
+            self.night_mode_transition_active = True
             self.night_mode_grace_period_end = datetime.now() + timedelta(seconds=self.config_manager.get_nested('night_mode', 'grace_period_seconds', default=15))
-
 
         await self._generic_admin_command_executor(
             update, context, "night_on_manual",
@@ -873,16 +987,13 @@ class TelegramModerationBot:
     async def night_mode_off_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Disattiva manualmente la Night Mode nel gruppo corrente."""
         chat_id = update.effective_chat.id
-        if chat_id not in self.get_night_mode_groups(): # Anche se non è in NM, permettiamo di "forzare" lo stato giorno
+        if chat_id not in self.get_night_mode_groups():
             self.logger.info(f"Comando /night_off in gruppo {chat_id} non in lista NM, ma procedo per sicurezza.")
-            # await update.message.reply_text("ℹ️ Questo gruppo non sembra essere in modalità notturna programmata.")
-            # return # O permettere comunque la disattivazione forzata. Scelgo quest'ultima.
 
         async def action(bot: Bot, cid: int):
             await self._apply_night_mode_permissions(bot, cid, activate=False)
-            self.night_mode_transition_active = False # Disabilita periodo di grazia
+            self.night_mode_transition_active = False
             self.night_mode_grace_period_end = None
-
 
         await self._generic_admin_command_executor(
             update, context, "night_off_manual",
@@ -923,7 +1034,7 @@ class TelegramModerationBot:
 
         mod_stats = self.moderation_logic.get_stats()
         counter_stats = self.user_counters.get_stats()
-        csv_stats = self.csv_manager.get_csv_stats()  # NUOVO
+        csv_stats = self.csv_manager.get_csv_stats()
         
         stats_msg = "📊 **Statistiche Moderazione Bot** 📊\n\n"
         stats_msg += f"🔹 **Messaggi Processati:** {self.bot_stats['total_messages_processed']}\n"
@@ -931,20 +1042,22 @@ class TelegramModerationBot:
         stats_msg += f"  ▫️ Da Filtro Diretto: {self.bot_stats['messages_deleted_by_direct_filter']}\n"
         stats_msg += f"  ▫️ Da Analisi AI: {self.bot_stats['messages_deleted_by_ai_filter']}\n"
         stats_msg += f"🔹 **Messaggi Modificati Rilevati:** {self.bot_stats['edited_messages_detected']}\n"
-        stats_msg += f"  ▫️ Modificati ed Eliminati: {self.bot_stats['edited_messages_deleted']}\n\n"
+        stats_msg += f"  ▫️ Modificati ed Eliminati: {self.bot_stats['edited_messages_deleted']}\n"
+        stats_msg += f"🔹 **Utenti Bannati:** {self.bot_stats['users_banned_total']}\n"
+        stats_msg += f"🔹 **Utenti Unbannati:** {self.bot_stats['users_unbanned_total']}\n\n"
         
         stats_msg += "🔍 **Statistiche Analisi Contenuto (OpenAI & Cache):**\n"
         stats_msg += f"🔸 Richieste OpenAI Effettuate: {mod_stats['openai_requests']}\n"
         stats_msg += f"🔸 Risultati da Cache OpenAI: {mod_stats['openai_cache_hits']}\n"
         stats_msg += f"🔸 Tasso Hit Cache: {mod_stats['cache_hit_rate']:.2%}\n"
         stats_msg += f"🔸 Dimensione Cache Analisi: {mod_stats['cache_size']}\n"
-        stats_msg += f"🔸 Violazioni rilevate da AI: {mod_stats['ai_filter_violations']}\n" # Dalla classe moderation_logic
-        stats_msg += f"🔸 Match filtro diretto (logica): {mod_stats['direct_filter_matches']}\n\n" # Dalla classe moderation_logic
+        stats_msg += f"🔸 Violazioni rilevate da AI: {mod_stats['ai_filter_violations']}\n"
+        stats_msg += f"🔸 Match filtro diretto (logica): {mod_stats['direct_filter_matches']}\n\n"
         stats_msg += f"👥 **Contatori Utente:**\n"
         stats_msg += f"🔸 Utenti tracciati: {counter_stats['total_tracked_users']}\n"
         stats_msg += f"🔸 Nuovi utenti (≤3 msg): {counter_stats['first_time_users']}\n"
         stats_msg += f"🔸 Utenti veterani (>3 msg): {counter_stats['veteran_users']}\n\n"
-        stats_msg += f"💾 **Sistema CSV (Backup Locale):**\n"
+        stats_msg += f"💾 **Sistema CSV:**\n"
         if csv_stats.get('csv_disabled'):
             stats_msg += f"🔸 CSV: DISABILITATO\n"
         else:
@@ -953,36 +1066,24 @@ class TelegramModerationBot:
             stats_msg += f"🔸 Bannati in CSV: {csv_stats.get('banned_users', 0)}\n"
         stats_msg += "\n"
 
-        # Potremmo aggiungere info sui lock attivi, stato night mode, etc.
-        active_locks = [k for k, v in self._operation_locks.items() if v] # Non usato più os.path.exists
-        if active_locks: # Ora _operation_locks non è più usato, i lock sono su file. Si potrebbe listare i file .lock
-            stats_msg += f"🔒 Lock operativi attivi: {', '.join(active_locks)}\n"
-        
-        # Conteggio gruppi in Night Mode attuale
         nm_groups_now = [gid for gid in self.get_night_mode_groups() if self.is_night_mode_period_active(gid)]
         stats_msg += f"🌙 Gruppi attualmente in Night Mode (da orario): {len(nm_groups_now)}\n"
 
         await update.message.reply_text(stats_msg, parse_mode='Markdown')
 
     async def show_rules_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """
-        Mostra le linee guida del gruppo (comando disponibile SOLO in chat privata).
-        """
+        """Mostra le linee guida del gruppo (comando disponibile SOLO in chat privata)."""
         if not self.config_manager.get('rules_command_enabled', True):
-            return  # Comando disabilitato nella configurazione
-        
-        # Verifica che sia una chat privata
+            return
+
         if update.effective_chat.type != 'private':
-            # Se scritto in un gruppo, NON rispondere affatto (silenzioso)
             self.logger.info(f"Comando /rules ignorato in chat di gruppo {update.effective_chat.id} da utente {update.effective_user.id}")
             return
         
-        # Ottieni il messaggio dalle configurazioni
         rules_text = self.config_manager.get('rules_message', 
             "📋 **LINEE GUIDA DEL GRUPPO**\n\n")
         
         try:
-            # Invia il messaggio in chat privata
             await context.bot.send_message(
                 update.effective_chat.id, 
                 rules_text, 
@@ -993,14 +1094,13 @@ class TelegramModerationBot:
             
         except Exception as e:
             self.logger.error(f"Errore invio regole in privato a utente {update.effective_user.id}: {e}")
-            # Invia messaggio di errore generico
             try:
                 await context.bot.send_message(
                     update.effective_chat.id,
                     "❌ Errore nell'invio delle regole. Riprova più tardi."
                 )
             except Exception:
-                pass  # Se non riesce nemmeno questo, ignora
+                pass
 
     async def reset_ai_cache_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Reset della cache analisi AI (solo per admin)."""
@@ -1019,65 +1119,53 @@ class TelegramModerationBot:
         self.logger.info(f"Cache AI resettata da admin {user.username} ({user.id})")
 
     async def manual_ban_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """
-        Comando /ban <user_id> per bannare manualmente un utente da tutti i gruppi.
-        Solo per admin autorizzati.
-        """
+        """Comando /ban <user_id> per bannare manualmente un utente da tutti i gruppi."""
         user = update.effective_user
         if not user: 
             return
         
-        # Verifica permessi admin
         exempt_users_list = self.config_manager.get('exempt_users', [])
         if not (user.id in exempt_users_list or (user.username and user.username in exempt_users_list)):
             await update.message.reply_text("❌ Non sei autorizzato a eseguire questo comando.")
             return
         
         try:
-            # Parsing argomenti: /ban user_id [motivo opzionale]
             args = context.args
             if len(args) < 1:
                 await update.message.reply_text("❌ **Uso:** `/ban <user_id> [motivo]`\n\n**Esempio:** `/ban 123456789 spam`", parse_mode='Markdown')
                 return
             
-            # Estrai user_id
             try:
                 target_user_id = int(args[0])
             except ValueError:
                 await update.message.reply_text("❌ L'user_id deve essere un numero valido.")
                 return
             
-            # Motivo opzionale
             motivo = " ".join(args[1:]) if len(args) > 1 else "Ban manuale da admin"
             
-            # Verifica che non stia cercando di bannare se stesso
             if target_user_id == user.id:
                 await update.message.reply_text("❌ Non puoi bannare te stesso!")
                 return
             
-            # Verifica che non stia cercando di bannare un altro admin
             if target_user_id in exempt_users_list:
                 await update.message.reply_text("❌ Non puoi bannare un altro amministratore!")
                 return
             
-            # Invia messaggio di conferma inizio operazione
             status_msg = await update.message.reply_text(f"🔨 **Ban in corso per utente:** `{target_user_id}`\n📝 **Motivo:** {motivo}\n\n⏳ Rimozione da tutti i gruppi configurati...", parse_mode='Markdown')
             
-            # Lista dei gruppi target (usa la lista night_mode come gruppi principali)
             target_groups = self.get_night_mode_groups()
             
             if not target_groups:
                 await status_msg.edit_text("❌ Nessun gruppo configurato per il ban. Verifica la configurazione `night_mode_groups`.")
                 return
             
-            # Esegui ban da tutti i gruppi
             results = await self._execute_multi_group_ban(context.bot, target_user_id, target_groups, motivo)
             
-            # Salva il ban nei database (logico)
-            self.sheets_manager.ban_user(target_user_id, f"UserID_{target_user_id}", f"Ban manuale: {motivo}")
+            # RIMOZIONE: Non più Google Sheets
+            # self.sheets_manager.ban_user(target_user_id, f"UserID_{target_user_id}", f"Ban manuale: {motivo}")
             self.csv_manager.ban_user(target_user_id, f"UserID_{target_user_id}", f"Ban manuale: {motivo}")
+            self.bot_stats['users_banned_total'] += 1
             
-            # Prepara report risultati
             success_count = sum(1 for success in results.values() if success)
             total_groups = len(target_groups)
             
@@ -1086,13 +1174,11 @@ class TelegramModerationBot:
             result_text += f"📝 **Motivo:** {motivo}\n"
             result_text += f"📊 **Risultato:** {success_count}/{total_groups} gruppi\n\n"
             
-            # Dettagli per gruppo
             result_text += "📋 **Dettagli per gruppo:**\n"
             for chat_id, success in results.items():
                 status_emoji = "✅" if success else "❌"
                 result_text += f"{status_emoji} Gruppo `{chat_id}`\n"
             
-            # Status finale
             if success_count == total_groups:
                 result_text += f"\n🎯 **Ban completato con successo!**"
             elif success_count > 0:
@@ -1100,10 +1186,8 @@ class TelegramModerationBot:
             else:
                 result_text += f"\n❌ **Ban fallito.** Verifica i permessi del bot nei gruppi."
             
-            # Aggiorna il messaggio con i risultati
             await status_msg.edit_text(result_text, parse_mode='Markdown')
             
-            # Log per admin
             self.logger.info(f"🔨 BAN MANUALE eseguito da {user.username} ({user.id}): utente {target_user_id} - successo {success_count}/{total_groups} gruppi")
             
         except Exception as e:
@@ -1114,25 +1198,20 @@ class TelegramModerationBot:
                 pass
 
     async def _execute_multi_group_ban(self, bot: Bot, user_id: int, target_groups: List[int], motivo: str) -> Dict[int, bool]:
-        """
-        Esegue il ban di un utente da multiple chat.
-        Restituisce dict {chat_id: success_bool}
-        """
+        """Esegue il ban di un utente da multiple chat."""
         results = {}
         
         self.logger.info(f"🔨 INIZIO BAN MULTI-GRUPPO per utente {user_id} da {len(target_groups)} gruppi. Motivo: {motivo}")
         
         for chat_id in target_groups:
             try:
-                # Prova a ottenere info del gruppo per log migliore
                 group_name = f"Chat {chat_id}"
                 try:
                     chat_info = await bot.get_chat(chat_id)
                     group_name = chat_info.title or group_name
                 except:
-                    pass  # Se non riesce, usa il nome di default
+                    pass
                 
-                # Esegui il ban
                 await bot.ban_chat_member(chat_id, user_id)
                 results[chat_id] = True
                 self.logger.info(f"✅ Utente {user_id} bannato da {group_name} ({chat_id})")
@@ -1144,7 +1223,7 @@ class TelegramModerationBot:
             except BadRequest as e:
                 error_msg = str(e).lower()
                 if "user not found" in error_msg or "user_not_participant" in error_msg:
-                    results[chat_id] = True  # Consideriamo successo se l'utente non è nel gruppo
+                    results[chat_id] = True
                     self.logger.info(f"ℹ️ Utente {user_id} non presente nel gruppo {chat_id} - considerato successo")
                 elif "user_admin" in error_msg or "can't remove chat owner" in error_msg:
                     results[chat_id] = False
@@ -1162,18 +1241,12 @@ class TelegramModerationBot:
         
         return results
 
-    # ===== AGGIUNGI ANCHE UN COMANDO /unban OPZIONALE =====
-
     async def manual_unban_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """
-        Comando /unban <user_id> per rimuovere il ban da Telegram (il ban logico rimane).
-        Solo per admin autorizzati.
-        """
+        """Comando /unban <user_id> per rimuovere il ban da Telegram."""
         user = update.effective_user
         if not user: 
             return
         
-        # Verifica permessi admin
         exempt_users_list = self.config_manager.get('exempt_users', [])
         if not (user.id in exempt_users_list or (user.username and user.username in exempt_users_list)):
             await update.message.reply_text("❌ Non sei autorizzato a eseguire questo comando.")
@@ -1191,17 +1264,14 @@ class TelegramModerationBot:
                 await update.message.reply_text("❌ L'user_id deve essere un numero valido.")
                 return
             
-            # Invia messaggio di stato
             status_msg = await update.message.reply_text(f"🔓 **Unban in corso per utente:** `{target_user_id}`\n\n⏳ Rimozione ban da tutti i gruppi...", parse_mode='Markdown')
             
-            # Lista gruppi
             target_groups = self.get_night_mode_groups()
             
             if not target_groups:
                 await status_msg.edit_text("❌ Nessun gruppo configurato per l'unban.")
                 return
             
-            # Esegui unban
             results = {}
             for chat_id in target_groups:
                 try:
@@ -1212,6 +1282,7 @@ class TelegramModerationBot:
                     self.logger.warning(f"Errore unban utente {target_user_id} da gruppo {chat_id}: {e}")
             
             success_count = sum(results.values())
+            self.bot_stats['users_unbanned_total'] += 1
             
             result_text = f"🔓 **UNBAN TELEGRAM COMPLETATO**\n\n"
             result_text += f"👤 **Utente:** `{target_user_id}`\n"
@@ -1233,9 +1304,9 @@ class TelegramModerationBot:
         while self.scheduler_active:
             try:
                 schedule.run_pending()
-            except Exception as e: # Cattura eccezioni generiche nello scheduler
+            except Exception as e:
                 self.logger.error(f"Errore imprevisto nello scheduler: {e}", exc_info=True)
-            time.sleep(self.config_manager.get('scheduler_check_interval_seconds', 60)) # Controlla ogni minuto
+            time.sleep(self.config_manager.get('scheduler_check_interval_seconds', 60))
         self.logger.info("Thread dello scheduler terminato.")
 
     def _check_night_mode_on_startup(self):
@@ -1245,8 +1316,6 @@ class TelegramModerationBot:
             return
         try:
             self.logger.info("Controllo stato Night Mode all'avvio...")
-            # Determina se globalmente dovrebbe essere attiva
-            # Usiamo -1 per controllare solo l'orario, senza specificare un gruppo
             should_be_active = self.is_night_mode_period_active(-1)
             
             self._safe_run_coroutine(
@@ -1257,22 +1326,12 @@ class TelegramModerationBot:
             self._release_lock("startup_night_mode_check")
 
     def _is_short_or_emoji_message(self, text: str) -> bool:
-        """
-        Verifica se il messaggio è davvero innocuo e breve.
-        ATTENZIONE: Questi messaggi saltano l'analisi AI ma NON i controlli di sicurezza base!
-        AGGIORNATO: Ora usa la configurazione per i messaggi molto brevi.
-        """
+        """Verifica se il messaggio è davvero innocuo e breve."""
         import re
         
         clean_text = text.strip()
-        
-        # Usa la configurazione per messaggi molto brevi
         short_max_length = self.config_manager.get('short_message_max_length', 4)
         
-        # I messaggi molto brevi sono già gestiti sopra, questo metodo
-        # gestisce messaggi leggermente più lunghi ma ancora "sicuri"
-        
-        # NUOVO: Lista di parole inglesi comuni che NON devono essere considerate "sicure"
         english_words = {
             'hi', 'hello', 'hey', 'how', 'are', 'you', 'what', 'where', 'when', 
             'why', 'who', 'can', 'could', 'would', 'should', 'will', 'thanks', 
@@ -1280,51 +1339,45 @@ class TelegramModerationBot:
             'good', 'bad', 'nice', 'great', 'welcome', 'see', 'the', 'and', 'but'
         }
         
-        # NUOVO: Se è una parola inglese comune, NON è sicura (deve passare per i controlli normali)
         if clean_text.lower() in english_words:
             return False
         
-        # Messaggi brevi ma più lunghi della soglia auto-approvazione
         if len(clean_text) > short_max_length and len(clean_text) < 10:
-            # Verifica che contenga solo caratteri latini/numeri/punteggiatura basic
             safe_pattern = r'^[a-zA-Z0-9\s.,!?;:()\-àèéìíîòóùú]*$'
             if re.match(safe_pattern, clean_text):
                 return True
             else:
-                # Contiene caratteri sospetti nonostante sia breve
                 return False
         
-        # Messaggi fino a 15 caratteri MA solo se pattern molto specifici e sicuri
         if len(clean_text) <= 15:
             safe_short_patterns = [
-                r'^(si|no|ok|ciao|grazie|prego|bene|male|buono|ottimo|perfetto)$',  # Parole singole italiane
-                r'^[0-9\s\-+/().,]+$',                       # Solo numeri e simboli
-                r'^[.,!?;:\s]+$',                           # Solo punteggiatura
-                r'^[👍👎❤️😊😢🎉✨🔥💪😍😂🤔😅]+$',            # Solo emoji comuni
+                r'^(si|no|ok|ciao|grazie|prego|bene|male|buono|ottimo|perfetto)$',
+                r'^[0-9\s\-+/().,]+$',
+                r'^[.,!?;:\s]+$',
+                r'^[👍👎❤️😊😢🎉✨🔥💪😍😂🤔😅]+$',
             ]
             
             for pattern in safe_short_patterns:
                 if re.match(pattern, clean_text.lower()):
                     return True
         
-        # Se arriva qui, NON è un messaggio breve sicuro
         return False
-
 
     def start(self):
         """Avvia il bot con gestione silenziosa degli errori di polling."""
         self.logger.info(f"Avvio del Bot di Moderazione Telegram (PID: {os.getpid()})...")
         self.logger.info(f"Directory di lavoro corrente: {os.getcwd()}")
 
+        self._is_running = True
+        self._start_time = datetime.now()
+
         self.application = Application.builder().token(self.token).build()
 
         # Handlers per messaggi
-        # Messaggi normali (testo, non comandi)
         self.application.add_handler(MessageHandler(
             filters.TEXT & ~filters.COMMAND & filters.UpdateType.MESSAGE, 
             self.filter_new_messages
         ))
-        # Messaggi modificati (testo, non comandi)
         self.application.add_handler(MessageHandler(
             filters.TEXT & ~filters.COMMAND & filters.UpdateType.EDITED_MESSAGE, 
             self.filter_edited_messages
@@ -1340,7 +1393,7 @@ class TelegramModerationBot:
         self.application.add_handler(CommandHandler("rules", self.show_rules_command))
         self.application.add_handler(CommandHandler("resetcache", self.reset_ai_cache_command))
         self.application.add_handler(CommandHandler("ban", self.manual_ban_command))
-        self.application.add_handler(CommandHandler("unban", self.manual_unban_command))  # Opzionale
+        self.application.add_handler(CommandHandler("unban", self.manual_unban_command))
 
         # Pianifica Night Mode
         self._schedule_night_mode_jobs()
@@ -1350,26 +1403,22 @@ class TelegramModerationBot:
         self.scheduler_thread = threading.Thread(target=self._run_scheduler_thread, daemon=True)
         self.scheduler_thread.start()
 
-        # AGGIUNTO: Handler per errori di polling
+        # Handler per errori di polling
         async def error_handler(update, context):
             """Gestisce silenziosamente gli errori di rete del polling."""
             error = context.error
             
-            # Ignora gli errori di rete comuni
             if isinstance(error, (NetworkError, TimedOut)):
-                # Log solo ogni 10 errori per non spammare
                 if not hasattr(self, '_network_error_count'):
                     self._network_error_count = 0
                 self._network_error_count += 1
                 
-                if self._network_error_count % 10 == 1:  # Log al 1°, 11°, 21°, etc.
+                if self._network_error_count % 10 == 1:
                     self.logger.debug(f"🌐 Errori di rete nel polling: #{self._network_error_count} (dettagli soppressi)")
                 return
             
-            # Per altri errori, log normale
             self.logger.error(f"Errore non di rete: {error}", exc_info=True)
 
-        # Registra l'error handler
         self.application.add_error_handler(error_handler)
 
         self.logger.info("Bot configurato e pronto. Avvio polling...")
@@ -1388,16 +1437,9 @@ class TelegramModerationBot:
     def stop(self):
         """Ferma lo scheduler e altre operazioni in preparazione alla chiusura."""
         self.logger.info("Arresto del bot in corso...")
-        self.scheduler_active = False # Segnala al thread dello scheduler di terminare
+        self._is_running = False
+        self.scheduler_active = False
         
-        # Qui si potrebbero aggiungere altre logiche di cleanup, se necessario
-        # ad esempio, aspettare che il thread dello scheduler termini (con un join e timeout)
-
-        # Rimuovi i file di lock se esistono (opzionale, dipende dalla strategia)
-        # Potrebbe essere meglio lasciarli e farli scadere per evitare race conditions su riavvii rapidi.
-        # self._release_lock("night_mode_activation") # Esempio
-        # self._release_lock("night_mode_deactivation")
-        # self._release_lock("startup_night_mode_check")
         self.user_counters.force_save()
         self.logger.info("Contatori utente salvati.")
 
