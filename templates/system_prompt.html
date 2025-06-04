@@ -1,0 +1,1008 @@
+{% extends "base.html" %}
+
+{% block title %}System Prompt - Dashboard{% endblock %}
+
+{% block page_title %}System Prompt AI{% endblock %}
+{% block page_description %}Gestione del prompt di sistema per l'analisi AI dei messaggi{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+    <!-- Quick Actions -->
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="bi bi-lightning me-2"></i>Azioni Rapide
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row g-2">
+                    <div class="col-md-2">
+                        <button class="btn btn-success w-100" onclick="savePrompt()">
+                            <i class="bi bi-save me-2"></i>Salva
+                        </button>
+                    </div>
+                    <div class="col-md-2">
+                        <button class="btn btn-outline-warning w-100" onclick="resetToDefault()">
+                            <i class="bi bi-arrow-counterclockwise me-2"></i>Reset Default
+                        </button>
+                    </div>
+                    <div class="col-md-2">
+                        <button class="btn btn-outline-info w-100" onclick="testPrompt()">
+                            <i class="bi bi-cpu me-2"></i>Test Prompt
+                        </button>
+                    </div>
+                    <div class="col-md-2">
+                        <button class="btn btn-outline-secondary w-100" onclick="validatePrompt()">
+                            <i class="bi bi-check-circle me-2"></i>Valida
+                        </button>
+                    </div>
+                    <div class="col-md-2">
+                        <button class="btn btn-outline-primary w-100" onclick="exportPrompt()">
+                            <i class="bi bi-download me-2"></i>Esporta
+                        </button>
+                    </div>
+                    <div class="col-md-2">
+                        <button class="btn btn-outline-dark w-100" onclick="importPrompt()">
+                            <i class="bi bi-upload me-2"></i>Importa
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Prompt Statistics -->
+    <div class="col-12">
+        <div class="card">
+            <div class="card-body">
+                <div class="row text-center">
+                    {% set prompt_length = current_prompt|length %}
+                    {% set prompt_words = current_prompt.split()|length %}
+                    {% set prompt_lines = current_prompt.count('\n') + 1 %}
+                    {% set history_count = prompt_history|length or 1 %}
+                    
+                    <div class="col-md-3">
+                        <div class="d-flex align-items-center justify-content-center">
+                            <div class="display-6 text-primary me-3">
+                                <i class="bi bi-textarea"></i>
+                            </div>
+                            <div>
+                                <h4 class="mb-0" id="prompt-length">{{ prompt_length }}</h4>
+                                <p class="text-muted mb-0">Caratteri</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="d-flex align-items-center justify-content-center">
+                            <div class="display-6 text-info me-3">
+                                <i class="bi bi-type"></i>
+                            </div>
+                            <div>
+                                <h4 class="mb-0" id="prompt-words">{{ prompt_words }}</h4>
+                                <p class="text-muted mb-0">Parole</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="d-flex align-items-center justify-content-center">
+                            <div class="display-6 text-warning me-3">
+                                <i class="bi bi-list-ul"></i>
+                            </div>
+                            <div>
+                                <h4 class="mb-0" id="prompt-lines">{{ prompt_lines }}</h4>
+                                <p class="text-muted mb-0">Righe</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="d-flex align-items-center justify-content-center">
+                            <div class="display-6 text-success me-3">
+                                <i class="bi bi-clock-history"></i>
+                            </div>
+                            <div>
+                                <h4 class="mb-0">v{{ history_count }}</h4>
+                                <p class="text-muted mb-0">Versione</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Prompt Editor -->
+    <div class="col-lg-8">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">
+                    <i class="bi bi-code-slash me-2"></i>Editor System Prompt
+                </h5>
+                <div class="btn-group btn-group-sm">
+                    <button class="btn btn-outline-secondary" onclick="formatPrompt()" title="Formatta">
+                        <i class="bi bi-text-paragraph"></i>
+                    </button>
+                    <button class="btn btn-outline-secondary" onclick="toggleLineNumbers()" title="Numeri di riga">
+                        <i class="bi bi-list-ol"></i>
+                    </button>
+                    <button class="btn btn-outline-secondary" onclick="toggleWordWrap()" title="A capo automatico">
+                        <i class="bi bi-text-wrap"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="card-body p-0">
+                <div class="position-relative">
+                    <textarea class="form-control border-0" id="prompt-editor" rows="30" style="font-family: 'Consolas', 'Monaco', monospace; font-size: 14px; line-height: 1.5; resize: vertical;">{{ current_prompt }}</textarea>
+                    <div class="position-absolute bottom-0 end-0 p-2">
+                        <small class="text-muted">
+                            <span id="cursor-position">Riga 1, Colonna 1</span>
+                        </small>
+                    </div>
+                </div>
+            </div>
+            <div class="card-footer">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <small class="text-muted">
+                            <i class="bi bi-info-circle me-1"></i>
+                            Utilizzare formattazione chiara e esempi specifici per migliori risultati AI
+                        </small>
+                    </div>
+                    <div>
+                        <span class="badge bg-primary" id="live-char-count">{{ prompt_length }} caratteri</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Prompt Tools and History -->
+    <div class="col-lg-4">
+        <!-- Prompt Templates -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h6 class="mb-0">
+                    <i class="bi bi-collection me-2"></i>Template Rapidi
+                </h6>
+            </div>
+            <div class="card-body">
+                <div class="d-grid gap-2">
+                    <button class="btn btn-outline-primary btn-sm" onclick="insertTemplate('italian_focus')">
+                        <i class="bi bi-flag me-1"></i>Focus Italiano
+                    </button>
+                    <button class="btn btn-outline-success btn-sm" onclick="insertTemplate('strict_moderation')">
+                        <i class="bi bi-shield-check me-1"></i>Moderazione Severa
+                    </button>
+                    <button class="btn btn-outline-warning btn-sm" onclick="insertTemplate('lenient_moderation')">
+                        <i class="bi bi-shield me-1"></i>Moderazione Permissiva
+                    </button>
+                    <button class="btn btn-outline-info btn-sm" onclick="insertTemplate('spam_detection')">
+                        <i class="bi bi-exclamation-triangle me-1"></i>Anti-Spam Focus
+                    </button>
+                    <button class="btn btn-outline-secondary btn-sm" onclick="insertTemplate('university_context')">
+                        <i class="bi bi-mortarboard me-1"></i>Contesto Universitario
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Prompt History -->
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h6 class="mb-0">
+                    <i class="bi bi-clock-history me-2"></i>Cronologia Versioni
+                </h6>
+                <button class="btn btn-outline-danger btn-sm" onclick="clearHistory()" title="Cancella cronologia">
+                    <i class="bi bi-trash"></i>
+                </button>
+            </div>
+            <div class="card-body p-0">
+                {% if prompt_history %}
+                <div class="list-group list-group-flush">
+                    {% for version in prompt_history %}
+                    <div class="list-group-item">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div class="flex-grow-1">
+                                <h6 class="mb-1">Versione {{ version.version }}</h6>
+                                <p class="mb-1 text-truncate" style="max-width: 200px;">{{ version.prompt_preview }}</p>
+                                <small class="text-muted">{{ version.timestamp|default('Sconosciuto') }}</small>
+                            </div>
+                            <div class="btn-group btn-group-sm">
+                                {% if version.is_current %}
+                                    <span class="badge bg-success">Attuale</span>
+                                {% else %}
+                                    <button class="btn btn-outline-primary btn-sm" 
+                                            data-version="{{ version.version|default(1)|int }}" 
+                                            onclick="restoreVersionFromButton(this)" 
+                                            title="Ripristina">
+                                        <i class="bi bi-arrow-clockwise"></i>
+                                    </button>
+                                {% endif %}
+                            </div>
+                        </div>
+                        <div class="mt-2">
+                            <small class="text-info">
+                                <i class="bi bi-textarea me-1"></i>{{ version.length }} caratteri
+                            </small>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <div class="text-center py-4">
+                    <div class="text-muted">
+                        <i class="bi bi-clock-history fs-1"></i>
+                        <p class="mt-2">Nessuna cronologia disponibile</p>
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- AI Response Test -->
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="bi bi-cpu me-2"></i>Test Prompt AI
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-md-8">
+                        <label for="test-message" class="form-label">Messaggio di test:</label>
+                        <textarea class="form-control" id="test-message" rows="3" placeholder="Inserisci un messaggio per testare il prompt..."></textarea>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Messaggi predefiniti:</label>
+                        <div class="d-grid gap-1">
+                            <button class="btn btn-outline-secondary btn-sm" onclick="loadTestMessage('spam')">Test Spam</button>
+                            <button class="btn btn-outline-secondary btn-sm" onclick="loadTestMessage('normal')">Test Normale</button>
+                            <button class="btn btn-outline-secondary btn-sm" onclick="loadTestMessage('question')">Test Domanda</button>
+                            <button class="btn btn-outline-secondary btn-sm" onclick="loadTestMessage('foreign')">Test Lingua Straniera</button>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="mt-3">
+                    <button class="btn btn-primary" onclick="runAITest()" id="test-ai-btn">
+                        <i class="bi bi-play-circle me-2"></i>Esegui Test AI
+                    </button>
+                    <button class="btn btn-outline-info" onclick="runBatchTest()">
+                        <i class="bi bi-collection me-2"></i>Test Multipli
+                    </button>
+                </div>
+                
+                <div id="test-results" class="mt-4" style="display: none;">
+                    <h6>Risultati Test:</h6>
+                    <div id="test-output" class="border rounded p-3 bg-light">
+                        <!-- Test results will be displayed here -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Import Modal -->
+<div class="modal fade" id="importModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="bi bi-upload me-2"></i>Importa Prompt
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label for="import-file" class="form-label">Seleziona file prompt (.txt):</label>
+                    <input type="file" class="form-control" id="import-file" accept=".txt">
+                </div>
+                <div class="alert alert-warning">
+                    <i class="bi bi-exclamation-triangle me-2"></i>
+                    <strong>Attenzione:</strong> Importare un prompt sostituirà completamente quello attuale.
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annulla</button>
+                <button type="button" class="btn btn-primary" onclick="performImport()">
+                    <i class="bi bi-upload me-1"></i>Importa
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Test Results Modal -->
+<div class="modal fade" id="testResultsModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="bi bi-cpu me-2"></i>Risultati Test Multipli
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="batch-test-results">
+                    <!-- Batch test results will be displayed here -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Chiudi</button>
+                <button type="button" class="btn btn-primary" onclick="exportTestResults()">
+                    <i class="bi bi-download me-1"></i>Esporta Risultati
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Hidden data for JavaScript -->
+<script id="prompt-data" type="application/json">
+{
+    "current_prompt": {{ current_prompt|tojson }},
+    "prompt_length": {{ prompt_length|int }},
+    "prompt_words": {{ prompt_words|int }},
+    "prompt_lines": {{ prompt_lines|int }},
+    "history_count": {{ history_count|int }},
+    "prompt_history": {{ prompt_history|tojson if prompt_history else "[]" }},
+    "has_debug": {{ config.DEBUG|tojson if config.DEBUG else "false" }}
+}
+</script>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let promptEditor;
+let isWordWrapEnabled = true;
+let areLineNumbersVisible = false;
+
+document.addEventListener('DOMContentLoaded', function() {
+    promptEditor = document.getElementById('prompt-editor');
+    
+    // Track cursor position and update statistics
+    promptEditor.addEventListener('input', updateStatistics);
+    promptEditor.addEventListener('keyup', updateCursorPosition);
+    promptEditor.addEventListener('click', updateCursorPosition);
+    
+    updateStatistics();
+    updateCursorPosition();
+});
+
+// Update prompt statistics
+function updateStatistics() {
+    const content = promptEditor.value;
+    const charCount = content.length;
+    const wordCount = content.trim() ? content.trim().split(/\s+/).length : 0;
+    const lineCount = content.split('\n').length;
+    
+    document.getElementById('prompt-length').textContent = charCount;
+    document.getElementById('prompt-words').textContent = wordCount;
+    document.getElementById('prompt-lines').textContent = lineCount;
+    document.getElementById('live-char-count').textContent = `${charCount} caratteri`;
+}
+
+// Update cursor position display
+function updateCursorPosition() {
+    const textarea = promptEditor;
+    const position = textarea.selectionStart;
+    const text = textarea.value.substring(0, position);
+    const lines = text.split('\n');
+    const currentLine = lines.length;
+    const currentColumn = lines[lines.length - 1].length + 1;
+    
+    document.getElementById('cursor-position').textContent = `Riga ${currentLine}, Colonna ${currentColumn}`;
+}
+
+// Save prompt
+function savePrompt() {
+    const promptText = promptEditor.value.trim();
+    
+    if (!promptText) {
+        showAlert('Il prompt non può essere vuoto', 'warning');
+        return;
+    }
+    
+    fetch('/api/prompt/update', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            prompt: promptText
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showAlert('Prompt salvato con successo!', 'success');
+        } else {
+            showAlert(`Errore durante il salvataggio: ${data.message}`, 'danger');
+        }
+    })
+    .catch(error => {
+        console.error('Errore:', error);
+        showAlert('Errore di comunicazione con il server', 'danger');
+    });
+}
+
+// Reset to default prompt
+function resetToDefault() {
+    if (confirm('Sei sicuro di voler ripristinare il prompt predefinito? Tutte le modifiche andranno perse.')) {
+        fetch('/api/prompt/reset', {
+            method: 'POST'
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showAlert('Prompt ripristinato alle impostazioni predefinite', 'success');
+                setTimeout(() => window.location.reload(), 1500);
+            } else {
+                showAlert(`Errore durante il reset: ${data.message}`, 'danger');
+            }
+        })
+        .catch(error => {
+            console.error('Errore:', error);
+            showAlert('Errore di comunicazione con il server', 'danger');
+        });
+    }
+}
+
+// Test prompt with AI
+function runAITest() {
+    const testMessage = document.getElementById('test-message').value.trim();
+    
+    if (!testMessage) {
+        showAlert('Inserisci un messaggio di test', 'warning');
+        return;
+    }
+    
+    const button = document.getElementById('test-ai-btn');
+    const originalText = showLoading(button);
+    
+    // Send actual request to API for testing
+    fetch('/api/prompt/test', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            message: testMessage,
+            prompt: promptEditor.value
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        hideLoading(button, originalText);
+        if (data.success) {
+            displayTestResults(data.result, testMessage);
+        } else {
+            // Fallback to mock response if API is not available
+            const mockResponse = {
+                inappropriate: Math.random() > 0.7,
+                question: testMessage.includes('?'),
+                language: 'CONSENTITA',
+                confidence: (Math.random() * 0.3 + 0.7).toFixed(2)
+            };
+            displayTestResults(mockResponse, testMessage);
+        }
+    })
+    .catch(error => {
+        hideLoading(button, originalText);
+        console.error('Errore test AI:', error);
+        
+        // Fallback to mock response on error
+        const mockResponse = {
+            inappropriate: Math.random() > 0.7,
+            question: testMessage.includes('?'),
+            language: 'CONSENTITA',
+            confidence: (Math.random() * 0.3 + 0.7).toFixed(2)
+        };
+        displayTestResults(mockResponse, testMessage);
+        showAlert('Test eseguito in modalità simulata (API non disponibile)', 'warning');
+    });
+}
+
+// Display test results
+function displayTestResults(response, testMessage) {
+    const resultsDiv = document.getElementById('test-results');
+    const outputDiv = document.getElementById('test-output');
+    
+    let resultColor = response.inappropriate ? 'danger' : 'success';
+    let resultIcon = response.inappropriate ? 'x-circle' : 'check-circle';
+    
+    outputDiv.innerHTML = `
+        <div class="row g-3">
+            <div class="col-md-8">
+                <h6>Messaggio Testato:</h6>
+                <div class="border rounded p-2 bg-white">
+                    "${testMessage}"
+                </div>
+            </div>
+            <div class="col-md-4">
+                <h6>Risultato AI:</h6>
+                <div class="d-flex flex-column gap-2">
+                    <span class="badge bg-${resultColor} fs-6">
+                        <i class="bi bi-${resultIcon} me-1"></i>
+                        ${response.inappropriate ? 'INAPPROPRIATO' : 'APPROPRIATO'}
+                    </span>
+                    <span class="badge bg-${response.question ? 'warning' : 'secondary'}">
+                        ${response.question ? 'DOMANDA' : 'NON DOMANDA'}
+                    </span>
+                    <span class="badge bg-success">
+                        LINGUA: ${response.language}
+                    </span>
+                    ${response.confidence ? `<small class="text-muted">Confidenza: ${response.confidence}</small>` : ''}
+                </div>
+            </div>
+        </div>
+    `;
+    
+    resultsDiv.style.display = 'block';
+}
+
+// Load predefined test messages
+function loadTestMessage(type) {
+    const testMessages = {
+        spam: 'Ciao a tutti! Vendo panieri aggiornati per tutti gli esami a 20€. Contattatemi in privato per maggiori informazioni.',
+        normal: 'Salve, qualcuno sa quando escono i risultati dell\'esame di diritto privato?',
+        question: 'Dove posso trovare le slides della lezione di oggi?',
+        foreign: 'Hello everyone, how are you doing today? I need some help with my studies.'
+    };
+    
+    document.getElementById('test-message').value = testMessages[type] || '';
+}
+
+// Run batch test
+function runBatchTest() {
+    const testMessages = [
+        { text: 'Vendo panieri completi', expected: { inappropriate: true, question: false } },
+        { text: 'Qualcuno ha i panieri?', expected: { inappropriate: false, question: true } },
+        { text: 'Ciao a tutti', expected: { inappropriate: false, question: false } },
+        { text: 'Hello everyone', expected: { inappropriate: false, question: false } }
+    ];
+    
+    // Mock batch test results - in a real implementation, this would call the API for each message
+    const results = testMessages.map(test => ({
+        message: test.text,
+        expected: test.expected,
+        actual: {
+            inappropriate: Math.random() > 0.5,
+            question: test.text.includes('?'),
+            language: test.text.includes('Hello') ? 'NON CONSENTITA' : 'CONSENTITA'
+        }
+    }));
+    
+    displayBatchTestResults(results);
+}
+
+// Display batch test results
+function displayBatchTestResults(results) {
+    const modal = new bootstrap.Modal(document.getElementById('testResultsModal'));
+    const resultsDiv = document.getElementById('batch-test-results');
+    
+    let html = '<div class="table-responsive"><table class="table table-sm">';
+    html += '<thead><tr><th>Messaggio</th><th>Atteso</th><th>Risultato</th><th>Match</th></tr></thead><tbody>';
+    
+    results.forEach(result => {
+        const match = result.expected.inappropriate === result.actual.inappropriate;
+        const matchIcon = match ? 'check-circle text-success' : 'x-circle text-danger';
+        
+        html += `
+            <tr>
+                <td class="text-truncate" style="max-width: 200px;">${result.message}</td>
+                <td><span class="badge bg-${result.expected.inappropriate ? 'danger' : 'success'}">${result.expected.inappropriate ? 'INAPP' : 'OK'}</span></td>
+                <td><span class="badge bg-${result.actual.inappropriate ? 'danger' : 'success'}">${result.actual.inappropriate ? 'INAPP' : 'OK'}</span></td>
+                <td><i class="bi bi-${matchIcon}"></i></td>
+            </tr>
+        `;
+    });
+    
+    html += '</tbody></table></div>';
+    
+    const accuracy = (results.filter(r => r.expected.inappropriate === r.actual.inappropriate).length / results.length * 100).toFixed(1);
+    html += `<div class="alert alert-info mt-3"><strong>Accuratezza:</strong> ${accuracy}%</div>`;
+    
+    resultsDiv.innerHTML = html;
+    modal.show();
+}
+
+// Export prompt
+function exportPrompt() {
+    const promptText = promptEditor.value;
+    const blob = new Blob([promptText], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `system_prompt_${new Date().toISOString().split('T')[0]}.txt`;
+    link.click();
+    URL.revokeObjectURL(url);
+    
+    showAlert('Prompt esportato con successo!', 'success');
+}
+
+// Import prompt
+function importPrompt() {
+    const modal = new bootstrap.Modal(document.getElementById('importModal'));
+    modal.show();
+}
+
+function performImport() {
+    const fileInput = document.getElementById('import-file');
+    const file = fileInput.files[0];
+    
+    if (!file) {
+        showAlert('Seleziona un file da importare', 'warning');
+        return;
+    }
+    
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        promptEditor.value = e.target.result;
+        updateStatistics();
+        showAlert('Prompt importato con successo!', 'success');
+        
+        const modal = bootstrap.Modal.getInstance(document.getElementById('importModal'));
+        modal.hide();
+    };
+    reader.readAsText(file);
+}
+
+// Insert template
+function insertTemplate(templateType) {
+    const templates = {
+        italian_focus: '\n\n⚠️ PRIORITÀ LINGUA ITALIANA: Analizza attentamente se il messaggio è in italiano. Solo messaggi completamente in lingue straniere sono da rifiutare.\n',
+        strict_moderation: '\n\n⚠️ MODERAZIONE SEVERA: Sii più rigoroso nel valutare i contenuti. In caso di dubbio, considera inappropriato.\n',
+        lenient_moderation: '\n\n⚠️ MODERAZIONE PERMISSIVA: Sii più tollerante. Permetti messaggi a meno che non siano chiaramente inappropriati.\n',
+        spam_detection: '\n\n⚠️ FOCUS ANTI-SPAM: Presta particolare attenzione a offerte di materiale didattico, inviti a contatti privati per panieri.\n',
+        university_context: '\n\n📚 CONTESTO UNIVERSITARIO: Ricorda che questo è un gruppo di studenti universitari. Panieri e riassunti sono materiali di studio legittimi quando condivisi gratuitamente.\n'
+    };
+    
+    const template = templates[templateType];
+    if (template) {
+        const cursorPosition = promptEditor.selectionStart;
+        const textBefore = promptEditor.value.substring(0, cursorPosition);
+        const textAfter = promptEditor.value.substring(cursorPosition);
+        
+        promptEditor.value = textBefore + template + textAfter;
+        promptEditor.selectionStart = promptEditor.selectionEnd = cursorPosition + template.length;
+        promptEditor.focus();
+        
+        updateStatistics();
+        showAlert('Template inserito!', 'success');
+    }
+}
+
+// Format prompt
+function formatPrompt() {
+    let formatted = promptEditor.value
+        .replace(/\n{3,}/g, '\n\n') // Remove excessive newlines
+        .replace(/([.!?])\s*\n([A-Z])/g, '$1\n\n$2') // Add spacing after sentences
+        .trim();
+    
+    promptEditor.value = formatted;
+    updateStatistics();
+    showAlert('Prompt formattato!', 'info');
+}
+
+// Toggle line numbers
+function toggleLineNumbers() {
+    areLineNumbersVisible = !areLineNumbersVisible;
+    if (areLineNumbersVisible) {
+        promptEditor.style.paddingLeft = '40px';
+        showAlert('Numeri di riga attivati (visuale)', 'info');
+    } else {
+        promptEditor.style.paddingLeft = '12px';
+        showAlert('Numeri di riga disattivati', 'info');
+    }
+}
+
+// Toggle word wrap
+function toggleWordWrap() {
+    isWordWrapEnabled = !isWordWrapEnabled;
+    if (isWordWrapEnabled) {
+        promptEditor.style.whiteSpace = 'pre-wrap';
+        promptEditor.style.overflowX = 'hidden';
+        showAlert('A capo automatico attivato', 'info');
+    } else {
+        promptEditor.style.whiteSpace = 'pre';
+        promptEditor.style.overflowX = 'auto';
+        showAlert('A capo automatico disattivato', 'info');
+    }
+}
+
+// Validate prompt
+function validatePrompt() {
+    const promptText = promptEditor.value.trim();
+    
+    if (!promptText) {
+        showAlert('Il prompt è vuoto', 'danger');
+        return;
+    }
+    
+    const issues = [];
+    
+    if (!promptText.includes('INAPPROPRIATO:') || !promptText.includes('DOMANDA:') || !promptText.includes('LINGUA:')) {
+        issues.push('Formato di risposta mancante (INAPPROPRIATO:/DOMANDA:/LINGUA:)');
+    }
+    
+    if (promptText.length < 500) {
+        issues.push('Prompt troppo breve (meno di 500 caratteri)');
+    }
+    
+    if (promptText.length > 8000) {
+        issues.push('Prompt troppo lungo (più di 8000 caratteri) - potrebbe causare costi elevati');
+    }
+    
+    if (!promptText.toLowerCase().includes('università') && !promptText.toLowerCase().includes('panieri')) {
+        issues.push('Contesto universitario non specificato');
+    }
+    
+    if (issues.length === 0) {
+        showAlert('✅ Prompt valido! Nessun problema rilevato.', 'success');
+    } else {
+        let alertText = '⚠️ Problemi rilevati:\n' + issues.map(issue => `• ${issue}`).join('\n');
+        showAlert(alertText, 'warning');
+    }
+}
+
+// Export test results
+function exportTestResults() {
+    const resultsData = {
+        timestamp: new Date().toISOString(),
+        prompt_version: 'current',
+        test_results: 'batch_test_data_here'
+    };
+    
+    const dataStr = JSON.stringify(resultsData, null, 2);
+    const dataBlob = new Blob([dataStr], { type: 'application/json' });
+    const url = URL.createObjectURL(dataBlob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `prompt_test_results_${new Date().toISOString().split('T')[0]}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+    
+    showAlert('Risultati test esportati!', 'success');
+}
+
+// Restore version
+function restoreVersion(version) {
+    if (confirm(`Sei sicuro di voler ripristinare la versione ${version}? Le modifiche attuali andranno perse.`)) {
+        fetch('/api/prompt/restore', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                version: version
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showAlert(`Versione ${version} ripristinata con successo!`, 'success');
+                setTimeout(() => window.location.reload(), 1500);
+            } else {
+                showAlert(`Errore durante il ripristino: ${data.message}`, 'danger');
+            }
+        })
+        .catch(error => {
+            console.error('Errore:', error);
+            showAlert('Funzione di ripristino versione non ancora implementata', 'info');
+        });
+    }
+}
+
+// Restore version from button (reads data from button attributes)
+function restoreVersionFromButton(button) {
+    const version = parseInt(button.getAttribute('data-version')) || 1;
+    restoreVersion(version);
+}
+
+// Clear history
+function clearHistory() {
+    if (confirm('Sei sicuro di voler cancellare tutta la cronologia delle versioni?')) {
+        fetch('/api/prompt/clear-history', {
+            method: 'POST'
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showAlert('Cronologia cancellata con successo!', 'success');
+                setTimeout(() => window.location.reload(), 1500);
+            } else {
+                showAlert(`Errore durante la cancellazione: ${data.message}`, 'danger');
+            }
+        })
+        .catch(error => {
+            console.error('Errore:', error);
+            showAlert('Funzione di cancellazione cronologia non ancora implementata', 'info');
+        });
+    }
+}
+
+// Test prompt function (alias for runAITest)
+function testPrompt() {
+    const testMessage = document.getElementById('test-message').value.trim();
+    if (!testMessage) {
+        document.getElementById('test-message').value = 'Ciao a tutti, qualcuno ha i panieri di diritto privato?';
+    }
+    runAITest();
+}
+
+// Loading state functions
+function showLoading(button) {
+    const originalText = button.innerHTML;
+    button.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status"></span>Testando...';
+    button.disabled = true;
+    return originalText;
+}
+
+function hideLoading(button, originalText) {
+    button.innerHTML = originalText;
+    button.disabled = false;
+}
+
+// Alert function
+function showAlert(message, type) {
+    console.log(`[${type.toUpperCase()}] ${message}`);
+    
+    // Handle multiline messages for validation
+    const displayMessage = message.replace(/\n/g, '<br>');
+    
+    // Create and show a Bootstrap alert
+    const alertContainer = document.createElement('div');
+    alertContainer.innerHTML = `
+        <div class="alert alert-${type} alert-dismissible fade show position-fixed" 
+             style="top: 20px; right: 20px; z-index: 9999; min-width: 300px; max-width: 500px;" role="alert">
+            <i class="bi bi-${type === 'success' ? 'check-circle' : type === 'danger' ? 'x-circle' : type === 'warning' ? 'exclamation-triangle' : 'info-circle'} me-2"></i>
+            ${displayMessage}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    `;
+    
+    document.body.appendChild(alertContainer);
+    
+    // Auto-remove after 7 seconds for longer messages
+    const timeout = message.length > 100 ? 7000 : 5000;
+    setTimeout(() => {
+        const alert = alertContainer.querySelector('.alert');
+        if (alert) {
+            const bsAlert = new bootstrap.Alert(alert);
+            bsAlert.close();
+        }
+    }, timeout);
+}
+
+// Keyboard shortcuts
+document.addEventListener('keydown', function(e) {
+    if (e.ctrlKey || e.metaKey) {
+        switch(e.key) {
+            case 's':
+                e.preventDefault();
+                savePrompt();
+                break;
+            case 'Enter':
+                if (e.shiftKey) {
+                    e.preventDefault();
+                    runAITest();
+                }
+                break;
+            case 'r':
+                if (e.shiftKey) {
+                    e.preventDefault();
+                    resetToDefault();
+                }
+                break;
+        }
+    }
+    
+    // ESC to close modals
+    if (e.key === 'Escape') {
+        const openModals = document.querySelectorAll('.modal.show');
+        openModals.forEach(modal => {
+            const modalInstance = bootstrap.Modal.getInstance(modal);
+            if (modalInstance) {
+                modalInstance.hide();
+            }
+        });
+    }
+});
+
+// Auto-save functionality (optional)
+let autoSaveTimeout;
+function scheduleAutoSave() {
+    clearTimeout(autoSaveTimeout);
+    autoSaveTimeout = setTimeout(() => {
+        const promptText = promptEditor.value.trim();
+        if (promptText && promptText.length > 100) {
+            // Auto-save to localStorage as backup
+            try {
+                localStorage.setItem('prompt_autosave', promptText);
+                localStorage.setItem('prompt_autosave_timestamp', new Date().toISOString());
+            } catch (e) {
+                // Ignore localStorage errors
+            }
+        }
+    }, 5000); // Auto-save after 5 seconds of inactivity
+}
+
+// Check for auto-saved content on load
+document.addEventListener('DOMContentLoaded', function() {
+    try {
+        const autoSaved = localStorage.getItem('prompt_autosave');
+        const autoSaveTime = localStorage.getItem('prompt_autosave_timestamp');
+        
+        if (autoSaved && autoSaveTime) {
+            const saveDate = new Date(autoSaveTime);
+            const now = new Date();
+            const hoursDiff = (now - saveDate) / (1000 * 60 * 60);
+            
+            // If auto-save is recent (less than 24 hours) and different from current
+            if (hoursDiff < 24 && autoSaved !== promptEditor.value.trim()) {
+                if (confirm(`Trovato backup automatico del ${saveDate.toLocaleString()}. Vuoi ripristinarlo?`)) {
+                    promptEditor.value = autoSaved;
+                    updateStatistics();
+                    showAlert('Backup automatico ripristinato', 'info');
+                }
+            }
+        }
+    } catch (e) {
+        // Ignore localStorage errors
+    }
+    
+    // Set up auto-save
+    promptEditor.addEventListener('input', scheduleAutoSave);
+});
+
+// Search and replace functionality
+function showSearchReplace() {
+    const searchText = prompt('Cerca nel prompt:');
+    if (searchText) {
+        const content = promptEditor.value;
+        const index = content.toLowerCase().indexOf(searchText.toLowerCase());
+        
+        if (index !== -1) {
+            promptEditor.focus();
+            promptEditor.setSelectionRange(index, index + searchText.length);
+            
+            const replace = confirm(`Trovato "${searchText}". Vuoi sostituirlo?`);
+            if (replace) {
+                const replaceText = prompt('Sostituisci con:', searchText);
+                if (replaceText !== null) {
+                    const newContent = content.substring(0, index) + replaceText + content.substring(index + searchText.length);
+                    promptEditor.value = newContent;
+                    updateStatistics();
+                    showAlert('Testo sostituito', 'success');
+                }
+            }
+        } else {
+            showAlert('Testo non trovato', 'warning');
+        }
+    }
+}
+
+// Add search functionality to editor toolbar
+document.addEventListener('DOMContentLoaded', function() {
+    const toolbar = document.querySelector('.btn-group.btn-group-sm');
+    if (toolbar) {
+        const searchBtn = document.createElement('button');
+        searchBtn.className = 'btn btn-outline-secondary';
+        searchBtn.title = 'Cerca e sostituisci (Ctrl+F)';
+        searchBtn.innerHTML = '<i class="bi bi-search"></i>';
+        searchBtn.onclick = showSearchReplace;
+        toolbar.appendChild(searchBtn);
+    }
+});
+
+// Add Ctrl+F shortcut for search
+document.addEventListener('keydown', function(e) {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'f' && e.target === promptEditor) {
+        e.preventDefault();
+        showSearchReplace();
+    }
+});

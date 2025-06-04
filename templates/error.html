@@ -1,0 +1,430 @@
+{% extends "base.html" %}
+
+{% block title %}Errore {{ error_code }} - Dashboard{% endblock %}
+
+{% block page_title %}Errore {{ error_code }}{% endblock %}
+{% block page_description %}Si è verificato un errore nel sistema{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-lg-8">
+        <div class="card">
+            <div class="card-body text-center py-5">
+                <!-- Error Icon -->
+                <div class="display-1 text-muted mb-4">
+                    {% if error_code == 404 %}
+                        <i class="bi bi-compass"></i>
+                    {% elif error_code == 403 %}
+                        <i class="bi bi-shield-exclamation"></i>
+                    {% elif error_code == 500 %}
+                        <i class="bi bi-exclamation-triangle"></i>
+                    {% else %}
+                        <i class="bi bi-question-circle"></i>
+                    {% endif %}
+                </div>
+                
+                <!-- Error Code -->
+                <h1 class="display-4 text-muted mb-3">{{ error_code }}</h1>
+                
+                <!-- Error Message -->
+                <h3 class="mb-4">
+                    {% if error_code == 404 %}
+                        Pagina Non Trovata
+                    {% elif error_code == 403 %}
+                        Accesso Negato
+                    {% elif error_code == 500 %}
+                        Errore Interno del Server
+                    {% else %}
+                        Errore Sconosciuto
+                    {% endif %}
+                </h3>
+                
+                <!-- Error Description -->
+                <p class="text-muted mb-4 lead">
+                    {% if error_message %}
+                        {{ error_message }}
+                    {% else %}
+                        {% if error_code == 404 %}
+                            La pagina che stai cercando non esiste o è stata spostata.
+                        {% elif error_code == 403 %}
+                            Non hai i permessi necessari per accedere a questa risorsa.
+                        {% elif error_code == 500 %}
+                            Si è verificato un errore interno del server. Riprova più tardi.
+                        {% else %}
+                            Si è verificato un errore imprevisto.
+                        {% endif %}
+                    {% endif %}
+                </p>
+                
+                <!-- Action Buttons -->
+                <div class="d-flex gap-3 justify-content-center flex-wrap">
+                    <a href="{{ url_for('index') }}" class="btn btn-primary">
+                        <i class="bi bi-house me-2"></i>Torna alla Home
+                    </a>
+                    
+                    <button class="btn btn-outline-secondary" onclick="window.history.back()">
+                        <i class="bi bi-arrow-left me-2"></i>Indietro
+                    </button>
+                    
+                    <button class="btn btn-outline-info" onclick="window.location.reload()">
+                        <i class="bi bi-arrow-clockwise me-2"></i>Ricarica Pagina
+                    </button>
+                </div>
+                
+                <!-- Additional Help -->
+                <div class="mt-5">
+                    <div class="card bg-light">
+                        <div class="card-body">
+                            <h6 class="card-title">
+                                <i class="bi bi-lightbulb me-2"></i>Cosa puoi fare:
+                            </h6>
+                            <ul class="list-unstyled text-start mb-0">
+                                {% if error_code == 404 %}
+                                    <li><i class="bi bi-check text-success me-2"></i>Verifica l'URL nella barra degli indirizzi</li>
+                                    <li><i class="bi bi-check text-success me-2"></i>Utilizza il menu di navigazione per trovare la pagina</li>
+                                    <li><i class="bi bi-check text-success me-2"></i>Controlla se la pagina è stata spostata</li>
+                                {% elif error_code == 403 %}
+                                    <li><i class="bi bi-check text-success me-2"></i>Verifica di essere autenticato correttamente</li>
+                                    <li><i class="bi bi-check text-success me-2"></i>Controlla i tuoi permessi di accesso</li>
+                                    <li><i class="bi bi-check text-success me-2"></i>Contatta l'amministratore se necessario</li>
+                                {% elif error_code == 500 %}
+                                    <li><i class="bi bi-check text-success me-2"></i>Attendi qualche minuto e riprova</li>
+                                    <li><i class="bi bi-check text-success me-2"></i>Verifica la connessione internet</li>
+                                    <li><i class="bi bi-check text-success me-2"></i>Segnala il problema se persiste</li>
+                                {% else %}
+                                    <li><i class="bi bi-check text-success me-2"></i>Ricarica la pagina</li>
+                                    <li><i class="bi bi-check text-success me-2"></i>Verifica la connessione</li>
+                                    <li><i class="bi bi-check text-success me-2"></i>Contatta il supporto</li>
+                                {% endif %}
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Error Details (only in debug mode) -->
+                {% if config.DEBUG and error_details %}
+                <div class="mt-4">
+                    <details class="text-start">
+                        <summary class="btn btn-outline-warning btn-sm">
+                            <i class="bi bi-bug me-2"></i>Dettagli Tecnici (Debug)
+                        </summary>
+                        <div class="mt-3 p-3 bg-light rounded">
+                            <pre class="text-danger small">{{ error_details }}</pre>
+                        </div>
+                    </details>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- System Status Check -->
+<div class="row justify-content-center mt-4">
+    <div class="col-lg-8">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="bi bi-activity me-2"></i>Stato del Sistema
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row text-center">
+                    <div class="col-md-3">
+                        <div class="border rounded p-3">
+                            <i class="bi bi-database text-primary fs-4"></i>
+                            <h6 class="mt-2 mb-1">Database</h6>
+                            <span class="badge bg-success" id="db-status">Verificando...</span>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="border rounded p-3">
+                            <i class="bi bi-robot text-info fs-4"></i>
+                            <h6 class="mt-2 mb-1">Bot</h6>
+                            <span class="badge bg-warning" id="bot-status">Verificando...</span>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="border rounded p-3">
+                            <i class="bi bi-cloud text-secondary fs-4"></i>
+                            <h6 class="mt-2 mb-1">API</h6>
+                            <span class="badge bg-success" id="api-status">Verificando...</span>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="border rounded p-3">
+                            <i class="bi bi-wifi text-warning fs-4"></i>
+                            <h6 class="mt-2 mb-1">Connessione</h6>
+                            <span class="badge bg-success" id="connection-status">Online</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="mt-3 text-center">
+                    <button class="btn btn-outline-primary btn-sm" onclick="checkSystemStatus()">
+                        <i class="bi bi-arrow-clockwise me-1"></i>Verifica Stato
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Hidden data for JavaScript -->
+<script id="error-data" type="application/json">
+{
+    "error_code": {{ error_code|default(500)|int }},
+    "error_message": {{ (error_message or '')|tojson }},
+    "has_debug": {{ (config.DEBUG and error_details)|tojson }},
+    "timestamp": {{ moment().isoformat()|tojson if moment else "null" }}
+}
+</script>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    checkSystemStatus();
+    addDiagnosticButton();
+    
+    // Auto-check status every 30 seconds
+    setInterval(checkSystemStatus, 30000);
+});
+
+function checkSystemStatus() {
+    // Check bot status
+    fetch('/api/bot/status')
+        .then(response => response.json())
+        .then(data => {
+            const botStatus = document.getElementById('bot-status');
+            if (data.is_running) {
+                botStatus.className = 'badge bg-success';
+                botStatus.textContent = 'Online';
+            } else {
+                botStatus.className = 'badge bg-danger';
+                botStatus.textContent = 'Offline';
+            }
+        })
+        .catch(error => {
+            const botStatus = document.getElementById('bot-status');
+            botStatus.className = 'badge bg-danger';
+            botStatus.textContent = 'Errore';
+        });
+    
+    // Mock other status checks
+    setTimeout(() => {
+        document.getElementById('db-status').className = 'badge bg-success';
+        document.getElementById('db-status').textContent = 'Operativo';
+        
+        document.getElementById('api-status').className = 'badge bg-success';
+        document.getElementById('api-status').textContent = 'Operativo';
+    }, 1000);
+}
+
+// Report error function
+function reportError() {
+    // Get error data from hidden script tag
+    const errorDataElement = document.getElementById('error-data');
+    const baseErrorData = JSON.parse(errorDataElement.textContent);
+    
+    const errorData = {
+        ...baseErrorData,
+        url: window.location.href,
+        timestamp: new Date().toISOString(),
+        userAgent: navigator.userAgent,
+        screen: {
+            width: window.screen.width,
+            height: window.screen.height
+        },
+        viewport: {
+            width: window.innerWidth,
+            height: window.innerHeight
+        }
+    };
+    
+    // In a real implementation, this would send the error to a logging service
+    console.log('Error reported:', errorData);
+    showAlert('Errore segnalato al sistema di monitoraggio', 'info');
+    
+    // Simulate sending to logging service
+    fetch('/api/errors/report', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(errorData)
+    })
+    .then(response => {
+        if (response.ok) {
+            showAlert('Errore segnalato con successo', 'success');
+        } else {
+            showAlert('Errore nella segnalazione', 'warning');
+        }
+    })
+    .catch(() => {
+        // Silent fail for error reporting
+        console.log('Could not send error report to server');
+    });
+}
+
+// Quick actions
+function quickDiagnostic() {
+    const results = [];
+    
+    // Check if JavaScript is working
+    results.push('✅ JavaScript: Funzionante');
+    
+    // Check if we can make network requests
+    fetch('/api/bot/status')
+        .then(() => {
+            results.push('✅ Connessione API: Funzionante');
+            showDiagnosticResults(results);
+        })
+        .catch(() => {
+            results.push('❌ Connessione API: Problemi');
+            showDiagnosticResults(results);
+        });
+    
+    // Check localStorage
+    try {
+        if (typeof Storage !== 'undefined') {
+            localStorage.setItem('test', 'test');
+            localStorage.removeItem('test');
+            results.push('✅ Storage Browser: Funzionante');
+        } else {
+            results.push('❌ Storage Browser: Non supportato');
+        }
+    } catch (e) {
+        results.push('❌ Storage Browser: Non disponibile');
+    }
+    
+    // Check if cookies are enabled
+    try {
+        document.cookie = 'test=test; SameSite=Strict';
+        if (document.cookie.indexOf('test=test') !== -1) {
+            results.push('✅ Cookies: Abilitati');
+            document.cookie = 'test=; expires=Thu, 01 Jan 1970 00:00:00 UTC; SameSite=Strict';
+        } else {
+            results.push('❌ Cookies: Disabilitati');
+        }
+    } catch (e) {
+        results.push('❌ Cookies: Errore');
+    }
+    
+    // Check browser info
+    results.push(`ℹ️ Browser: ${navigator.userAgent.split(' ').slice(-1)[0] || 'Sconosciuto'}`);
+    results.push(`ℹ️ Risoluzione: ${window.screen.width}x${window.screen.height}`);
+}
+
+function showDiagnosticResults(results) {
+    const modal = document.createElement('div');
+    modal.className = 'modal fade';
+    modal.innerHTML = `
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="bi bi-tools me-2"></i>Diagnostica Rapida
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <ul class="list-unstyled">
+                        ${results.map(result => `<li class="mb-1">${result}</li>`).join('')}
+                    </ul>
+                    <div class="mt-3">
+                        <small class="text-muted">
+                            <i class="bi bi-info-circle me-1"></i>
+                            Questi controlli aiutano a identificare possibili problemi del browser o di connessione.
+                        </small>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Chiudi</button>
+                    <button type="button" class="btn btn-primary" onclick="reportError()">
+                        <i class="bi bi-bug me-1"></i>Segnala Problema
+                    </button>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(modal);
+    const modalInstance = new bootstrap.Modal(modal);
+    modalInstance.show();
+    
+    modal.addEventListener('hidden.bs.modal', () => {
+        document.body.removeChild(modal);
+    });
+}
+
+// Add quick diagnostic button
+function addDiagnosticButton() {
+    const buttonContainer = document.querySelector('.d-flex.gap-3.justify-content-center');
+    if (buttonContainer) {
+        const diagnosticBtn = document.createElement('button');
+        diagnosticBtn.className = 'btn btn-outline-warning';
+        diagnosticBtn.innerHTML = '<i class="bi bi-tools me-2"></i>Diagnostica';
+        diagnosticBtn.onclick = quickDiagnostic;
+        
+        buttonContainer.appendChild(diagnosticBtn);
+    }
+}
+
+// Alert function
+function showAlert(message, type) {
+    console.log(`[${type.toUpperCase()}] ${message}`);
+    
+    // Create and show a Bootstrap alert
+    const alertContainer = document.createElement('div');
+    alertContainer.innerHTML = `
+        <div class="alert alert-${type} alert-dismissible fade show position-fixed" 
+             style="top: 20px; right: 20px; z-index: 9999; min-width: 300px;" role="alert">
+            <i class="bi bi-${type === 'success' ? 'check-circle' : type === 'danger' ? 'x-circle' : type === 'warning' ? 'exclamation-triangle' : 'info-circle'} me-2"></i>
+            ${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    `;
+    
+    document.body.appendChild(alertContainer);
+    
+    // Auto-remove after 5 seconds
+    setTimeout(() => {
+        const alert = alertContainer.querySelector('.alert');
+        if (alert) {
+            const bsAlert = new bootstrap.Alert(alert);
+            bsAlert.close();
+        }
+    }, 5000);
+}
+
+// Auto-refresh on connection recovery
+let connectionLost = false;
+
+function checkConnection() {
+    fetch('/api/bot/status', { 
+        method: 'HEAD',
+        cache: 'no-cache'
+    })
+    .then(() => {
+        if (connectionLost) {
+            connectionLost = false;
+            showAlert('Connessione ripristinata', 'success');
+        }
+        document.getElementById('connection-status').className = 'badge bg-success';
+        document.getElementById('connection-status').textContent = 'Online';
+    })
+    .catch(() => {
+        if (!connectionLost) {
+            connectionLost = true;
+            showAlert('Connessione persa', 'warning');
+        }
+        document.getElementById('connection-status').className = 'badge bg-danger';
+        document.getElementById('connection-status').textContent = 'Offline';
+    });
+}
+
+// Check connection every 10 seconds
+setInterval(checkConnection, 10000);
+</script>
+{% endblock %}

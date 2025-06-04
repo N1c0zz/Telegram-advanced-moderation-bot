@@ -1,0 +1,588 @@
+{% extends "base.html" %}
+
+{% block title %}Messaggi - Dashboard{% endblock %}
+
+{% block page_title %}Messaggi Processati{% endblock %}
+{% block page_description %}Visualizzazione degli ultimi messaggi processati dal sistema{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+    <!-- Stats Cards -->
+    <div class="col-12">
+        <div class="card">
+            <div class="card-body">
+                <div class="row text-center">
+                    <div class="col-md-3">
+                        <div class="d-flex align-items-center justify-content-center">
+                            <div class="display-6 text-primary me-3">
+                                <i class="bi bi-chat-dots"></i>
+                            </div>
+                            <div>
+                                <h4 class="mb-0">{{ messages|length }}</h4>
+                                <p class="text-muted mb-0">Messaggi Mostrati</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="d-flex align-items-center justify-content-center">
+                            <div class="display-6 text-success me-3">
+                                <i class="bi bi-check-circle"></i>
+                            </div>
+                            <div>
+                                <h4 class="mb-0">{{ messages|selectattr('approvato', 'equalto', 'SI')|list|length }}</h4>
+                                <p class="text-muted mb-0">Approvati</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="d-flex align-items-center justify-content-center">
+                            <div class="display-6 text-danger me-3">
+                                <i class="bi bi-x-circle"></i>
+                            </div>
+                            <div>
+                                <h4 class="mb-0">{{ messages|selectattr('approvato', 'equalto', 'NO')|list|length }}</h4>
+                                <p class="text-muted mb-0">Rifiutati</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="d-flex align-items-center justify-content-center">
+                            <div class="display-6 text-info me-3">
+                                <i class="bi bi-question-circle"></i>
+                            </div>
+                            <div>
+                                <h4 class="mb-0">{{ messages|selectattr('domanda', 'equalto', 'SI')|list|length }}</h4>
+                                <p class="text-muted mb-0">Domande</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="bi bi-funnel me-2"></i>Filtri e Azioni
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-md-4">
+                        <label class="form-label">Filtra per stato:</label>
+                        <select class="form-select" id="status-filter">
+                            <option value="">Tutti i messaggi</option>
+                            <option value="SI">Solo approvati</option>
+                            <option value="NO">Solo rifiutati</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Filtra per tipo:</label>
+                        <select class="form-select" id="type-filter">
+                            <option value="">Tutti i tipi</option>
+                            <option value="SI">Solo domande</option>
+                            <option value="NO">Solo non domande</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Cerca utente:</label>
+                        <input type="text" class="form-control" id="user-search" placeholder="User ID o Username">
+                    </div>
+                </div>
+                <div class="row mt-3">
+                    <div class="col-12">
+                        <div class="d-flex gap-2">
+                            <button class="btn btn-primary" onclick="applyFilters()">
+                                <i class="bi bi-search me-1"></i>Applica Filtri
+                            </button>
+                            <button class="btn btn-outline-secondary" onclick="clearFilters()">
+                                <i class="bi bi-x-lg me-1"></i>Cancella Filtri
+                            </button>
+                            <button class="btn btn-outline-success" onclick="refreshMessages()">
+                                <i class="bi bi-arrow-clockwise me-1"></i>Aggiorna
+                            </button>
+                            <div class="dropdown">
+                                <button class="btn btn-outline-info dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                                    <i class="bi bi-gear me-1"></i>Limite: {{ limit }}
+                                </button>
+                                <ul class="dropdown-menu">
+                                    <li><a class="dropdown-item" href="?limit=20">20 messaggi</a></li>
+                                    <li><a class="dropdown-item" href="?limit=30">30 messaggi</a></li>
+                                    <li><a class="dropdown-item" href="?limit=50">50 messaggi</a></li>
+                                    <li><a class="dropdown-item" href="?limit=100">100 messaggi</a></li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Messages Table -->
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">
+                    <i class="bi bi-table me-2"></i>Lista Messaggi
+                </h5>
+                <span class="badge bg-primary">{{ messages|length }} messaggi</span>
+            </div>
+            <div class="card-body p-0">
+                {% if messages %}
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0" id="messages-table">
+                        <thead>
+                            <tr>
+                                <th>Timestamp</th>
+                                <th>Utente</th>
+                                <th>Messaggio</th>
+                                <th>Gruppo</th>
+                                <th>Stato</th>
+                                <th>Domanda</th>
+                                <th class="text-center">Azioni</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for message in messages %}
+                            <tr data-user-id="{{ message.user_id }}" data-approved="{{ message.approvato }}" data-question="{{ message.domanda }}">
+                                <td>
+                                    <small title="{{ message.timestamp }}">
+                                        {{ formatDate(message.timestamp) }}
+                                    </small>
+                                </td>
+                                <td>
+                                    <div class="d-flex align-items-center">
+                                        <div class="bg-{% if message.approvato == 'SI' %}success{% else %}danger{% endif %} text-white rounded-circle d-flex align-items-center justify-content-center me-2" 
+                                             style="width: 32px; height: 32px; font-size: 0.75rem;">
+                                            <i class="bi bi-person"></i>
+                                        </div>
+                                        <div>
+                                            <strong>{{ message.username or 'N/A' }}</strong>
+                                            <br>
+                                            <small class="text-muted">ID: {{ message.user_id }}</small>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td>
+                                    <div class="text-truncate" style="max-width: 300px;" title="{{ message.messaggio }}">
+                                        {{ message.messaggio }}
+                                    </div>
+                                    {% if message.motivo_rifiuto %}
+                                    <small class="text-muted d-block">
+                                        <i class="bi bi-exclamation-triangle me-1"></i>
+                                        {{ message.motivo_rifiuto }}
+                                    </small>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <span class="badge bg-info">{{ message.group_name or 'N/A' }}</span>
+                                </td>
+                                <td>
+                                    {% if message.approvato == 'SI' %}
+                                        <span class="badge bg-success">
+                                            <i class="bi bi-check-lg me-1"></i>Approvato
+                                        </span>
+                                    {% else %}
+                                        <span class="badge bg-danger">
+                                            <i class="bi bi-x-lg me-1"></i>Rifiutato
+                                        </span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if message.domanda == 'SI' %}
+                                        <span class="badge bg-warning">
+                                            <i class="bi bi-question-lg me-1"></i>Domanda
+                                        </span>
+                                    {% else %}
+                                        <span class="badge bg-secondary">Normale</span>
+                                    {% endif %}
+                                </td>
+                                <td class="text-center">
+                                    <div class="btn-group btn-group-sm">
+                                        <button class="btn btn-outline-info" onclick="viewMessageDetails('{{ message.user_id }}', '{{ message.messaggio|e }}', '{{ message.timestamp }}')" title="Dettagli messaggio">
+                                            <i class="bi bi-eye"></i>
+                                        </button>
+                                        <button class="btn btn-outline-primary" onclick="viewUserDetails('{{ message.user_id }}')" title="Dettagli utente">
+                                            <i class="bi bi-person"></i>
+                                        </button>
+                                        <button class="btn btn-outline-danger" onclick="banUserFromMessage('{{ message.user_id }}', '{{ message.username or message.user_id }}')" title="Banna utente">
+                                            <i class="bi bi-person-x"></i>
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="text-center py-5">
+                    <div class="display-4 text-muted mb-3">
+                        <i class="bi bi-chat-dots"></i>
+                    </div>
+                    <h5 class="text-muted">Nessun messaggio trovato</h5>
+                    <p class="text-muted">Non ci sono messaggi da visualizzare con i filtri attuali.</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Message Details Modal -->
+<div class="modal fade" id="messageDetailsModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="bi bi-chat-dots me-2"></i>Dettagli Messaggio
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="message-details-content">
+                    <!-- Contenuto caricato via JavaScript -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Chiudi</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- User Details Modal -->
+<div class="modal fade" id="userDetailsModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="bi bi-person-circle me-2"></i>Dettagli Utente
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="user-details-loading" class="text-center py-4">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Caricamento...</span>
+                    </div>
+                    <p class="text-muted mt-2">Caricamento dettagli utente...</p>
+                </div>
+                <div id="user-details-content" style="display: none;">
+                    <!-- Contenuto caricato via AJAX -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Chiudi</button>
+                <button type="button" class="btn btn-danger" id="ban-user-from-modal" style="display: none;">
+                    <i class="bi bi-person-x me-1"></i>Banna Utente
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Ban Confirmation Modal -->
+<div class="modal fade" id="banConfirmModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="bi bi-person-x me-2"></i>Conferma Ban
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p>Sei sicuro di voler bannare l'utente <strong id="ban-username-display"></strong>?</p>
+                <div class="mb-3">
+                    <label for="ban-reason-input" class="form-label">Motivo del ban:</label>
+                    <input type="text" class="form-control" id="ban-reason-input" placeholder="Inserisci il motivo del ban" value="Ban da dashboard - messaggio inappropriato">
+                </div>
+                <div class="alert alert-warning">
+                    <i class="bi bi-exclamation-triangle me-2"></i>
+                    <strong>Attenzione:</strong> Questa azione bannerà l'utente da tutti i gruppi configurati.
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annulla</button>
+                <button type="button" class="btn btn-danger" id="confirm-ban-user-btn">
+                    <i class="bi bi-person-x me-1"></i>Conferma Ban
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let currentBanUserId = null;
+
+// Apply filters
+function applyFilters() {
+    const statusFilter = document.getElementById('status-filter').value;
+    const typeFilter = document.getElementById('type-filter').value;
+    const userSearch = document.getElementById('user-search').value.toLowerCase();
+    
+    const rows = document.querySelectorAll('#messages-table tbody tr');
+    let visibleCount = 0;
+    
+    rows.forEach(row => {
+        let show = true;
+        
+        // Filter by approval status
+        if (statusFilter && row.dataset.approved !== statusFilter) {
+            show = false;
+        }
+        
+        // Filter by question type
+        if (typeFilter && row.dataset.question !== typeFilter) {
+            show = false;
+        }
+        
+        // Filter by user search
+        if (userSearch) {
+            const userId = row.dataset.userId.toLowerCase();
+            const username = row.querySelector('strong').textContent.toLowerCase();
+            if (!userId.includes(userSearch) && !username.includes(userSearch)) {
+                show = false;
+            }
+        }
+        
+        if (show) {
+            row.style.display = '';
+            visibleCount++;
+        } else {
+            row.style.display = 'none';
+        }
+    });
+    
+    showAlert(`Filtri applicati: ${visibleCount} messaggi visibili`, 'info');
+}
+
+// Clear filters
+function clearFilters() {
+    document.getElementById('status-filter').value = '';
+    document.getElementById('type-filter').value = '';
+    document.getElementById('user-search').value = '';
+    
+    const rows = document.querySelectorAll('#messages-table tbody tr');
+    rows.forEach(row => row.style.display = '');
+    
+    showAlert('Filtri cancellati', 'success');
+}
+
+// Refresh messages
+function refreshMessages() {
+    window.location.reload();
+}
+
+// View message details
+function viewMessageDetails(userId, message, timestamp) {
+    const modal = new bootstrap.Modal(document.getElementById('messageDetailsModal'));
+    const content = document.getElementById('message-details-content');
+    
+    content.innerHTML = `
+        <div class="row g-3">
+            <div class="col-12">
+                <h6>Messaggio Completo:</h6>
+                <div class="card">
+                    <div class="card-body">
+                        <p class="mb-0">${message}</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <dl class="row">
+                    <dt class="col-4">User ID:</dt>
+                    <dd class="col-8">${userId}</dd>
+                    
+                    <dt class="col-4">Timestamp:</dt>
+                    <dd class="col-8">${formatDate(timestamp)}</dd>
+                </dl>
+            </div>
+            <div class="col-md-6">
+                <dl class="row">
+                    <dt class="col-6">Lunghezza:</dt>
+                    <dd class="col-6">${message.length} caratteri</dd>
+                    
+                    <dt class="col-6">Parole:</dt>
+                    <dd class="col-6">${message.split(' ').length} parole</dd>
+                </dl>
+            </div>
+        </div>
+    `;
+    
+    modal.show();
+}
+
+// View user details (riusa la stessa funzione del template banned_users.html)
+function viewUserDetails(userId) {
+    const modal = new bootstrap.Modal(document.getElementById('userDetailsModal'));
+    modal.show();
+    
+    // Reset modal content
+    document.getElementById('user-details-loading').style.display = 'block';
+    document.getElementById('user-details-content').style.display = 'none';
+    document.getElementById('ban-user-from-modal').style.display = 'none';
+    
+    fetch(`/api/user/search/${userId}`)
+        .then(response => response.json())
+        .then(data => {
+            document.getElementById('user-details-loading').style.display = 'none';
+            document.getElementById('user-details-content').style.display = 'block';
+            
+            if (data.error) {
+                document.getElementById('user-details-content').innerHTML = `
+                    <div class="alert alert-danger">
+                        <i class="bi bi-exclamation-triangle me-2"></i>
+                        Errore: ${data.error}
+                    </div>
+                `;
+                return;
+            }
+            
+            // Show ban button if user is not banned
+            if (!data.is_banned) {
+                document.getElementById('ban-user-from-modal').style.display = 'inline-block';
+                document.getElementById('ban-user-from-modal').onclick = function() {
+                    modal.hide();
+                    banUserFromMessage(userId, data.user_id);
+                };
+            }
+            
+            const content = `
+                <div class="row g-4">
+                    <div class="col-md-6">
+                        <div class="card">
+                            <div class="card-header">
+                                <h6 class="mb-0">Informazioni Generali</h6>
+                            </div>
+                            <div class="card-body">
+                                <dl class="row mb-0">
+                                    <dt class="col-4">User ID:</dt>
+                                    <dd class="col-8">${data.user_id}</dd>
+                                    
+                                    <dt class="col-4">Bannato:</dt>
+                                    <dd class="col-8">
+                                        <span class="badge bg-${data.is_banned ? 'danger' : 'success'}">
+                                            ${data.is_banned ? 'SÌ' : 'NO'}
+                                        </span>
+                                    </dd>
+                                    
+                                    <dt class="col-4">Tot. Messaggi:</dt>
+                                    <dd class="col-8">${formatNumber(data.total_messages)}</dd>
+                                    
+                                    <dt class="col-4">Approvati:</dt>
+                                    <dd class="col-8 text-success">${formatNumber(data.approved_messages)}</dd>
+                                    
+                                    <dt class="col-4">Rifiutati:</dt>
+                                    <dd class="col-8 text-danger">${formatNumber(data.rejected_messages)}</dd>
+                                </dl>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="col-md-6">
+                        <div class="card">
+                            <div class="card-header">
+                                <h6 class="mb-0">Statistiche</h6>
+                            </div>
+                            <div class="card-body">
+                                <div class="mb-3">
+                                    <label class="form-label">Tasso di Approvazione</label>
+                                    <div class="progress">
+                                        <div class="progress-bar bg-${data.approval_rate >= 80 ? 'success' : data.approval_rate >= 50 ? 'warning' : 'danger'}" 
+                                             style="width: ${data.approval_rate}%">
+                                            ${data.approval_rate.toFixed(1)}%
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <label class="form-label">Gruppi</label>
+                                    <div class="d-flex flex-wrap gap-1">
+                                        ${data.groups.map(group => `<span class="badge bg-primary">${group}</span>`).join('')}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            document.getElementById('user-details-content').innerHTML = content;
+        })
+        .catch(error => {
+            document.getElementById('user-details-loading').style.display = 'none';
+            document.getElementById('user-details-content').style.display = 'block';
+            document.getElementById('user-details-content').innerHTML = `
+                <div class="alert alert-danger">
+                    <i class="bi bi-exclamation-triangle me-2"></i>
+                    Errore durante il caricamento dei dettagli utente
+                </div>
+            `;
+            console.error('Errore dettagli utente:', error);
+        });
+}
+
+// Ban user from message
+function banUserFromMessage(userId, username) {
+    currentBanUserId = userId;
+    document.getElementById('ban-username-display').textContent = username;
+    
+    const modal = new bootstrap.Modal(document.getElementById('banConfirmModal'));
+    modal.show();
+}
+
+// Confirm ban
+document.getElementById('confirm-ban-user-btn').addEventListener('click', function() {
+    const button = this;
+    const originalText = showLoading(button);
+    const reason = document.getElementById('ban-reason-input').value.trim() || 'Ban da dashboard - messaggio inappropriato';
+    
+    fetch('/api/user/ban', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            user_id: currentBanUserId,
+            reason: reason
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        hideLoading(button, originalText);
+        
+        if (data.success) {
+            showAlert(`Utente ${currentBanUserId} bannato con successo! (${data.groups_banned}/${data.total_groups} gruppi)`, 'success');
+            
+            // Close modal
+            const modal = bootstrap.Modal.getInstance(document.getElementById('banConfirmModal'));
+            modal.hide();
+            
+            // Update table row to show banned status
+            const row = document.querySelector(`tr[data-user-id="${currentBanUserId}"]`);
+            if (row) {
+                const avatar = row.querySelector('.rounded-circle');
+                if (avatar) {
+                    avatar.className = avatar.className.replace('bg-success', 'bg-danger').replace('bg-primary', 'bg-danger');
+                }
+            }
+        } else {
+            showAlert(`Errore durante il ban: ${data.message}`, 'danger');
+        }
+    })
+    .catch(error => {
+        hideLoading(button, originalText);
+        showAlert('Errore di comunicazione con il server', 'danger');
+        console.error('Errore ban:', error);
+    });
+});
+</script>
+{% endblock %}

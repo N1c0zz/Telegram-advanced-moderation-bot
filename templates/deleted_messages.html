@@ -1,0 +1,754 @@
+{% extends "base.html" %}
+
+{% block title %}Messaggi Eliminati - Dashboard{% endblock %}
+
+{% block page_title %}Messaggi Eliminati{% endblock %}
+{% block page_description %}Visualizzazione degli ultimi messaggi eliminati dal sistema{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+    <!-- Stats Cards -->
+    <div class="col-12">
+        <div class="card">
+            <div class="card-body">
+                <div class="row text-center">
+                    <div class="col-md-3">
+                        <div class="d-flex align-items-center justify-content-center">
+                            <div class="display-6 text-danger me-3">
+                                <i class="bi bi-trash"></i>
+                            </div>
+                            <div>
+                                <h4 class="mb-0">{{ messages|length }}</h4>
+                                <p class="text-muted mb-0">Messaggi Eliminati</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="d-flex align-items-center justify-content-center">
+                            <div class="display-6 text-warning me-3">
+                                <i class="bi bi-exclamation-triangle"></i>
+                            </div>
+                            <div>
+                                <h4 class="mb-0">{{ messages|selectattr('motivo_rifiuto', 'match', '.*ban.*')|list|length }}</h4>
+                                <p class="text-muted mb-0">Hanno Causato Ban</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="d-flex align-items-center justify-content-center">
+                            <div class="display-6 text-info me-3">
+                                <i class="bi bi-robot"></i>
+                            </div>
+                            <div>
+                                <h4 class="mb-0">{{ messages|selectattr('motivo_rifiuto', 'match', '.*AI.*')|list|length }}</h4>
+                                <p class="text-muted mb-0">Rilevati da AI</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="d-flex align-items-center justify-content-center">
+                            <div class="display-6 text-secondary me-3">
+                                <i class="bi bi-filter"></i>
+                            </div>
+                            <div>
+                                <h4 class="mb-0">{{ messages|selectattr('motivo_rifiuto', 'match', '.*parole.*|.*pattern.*')|list|length }}</h4>
+                                <p class="text-muted mb-0">Filtro Diretto</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="bi bi-funnel me-2"></i>Filtri e Ricerca
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-md-4">
+                        <label class="form-label">Filtra per motivo:</label>
+                        <select class="form-select" id="reason-filter">
+                            <option value="">Tutti i motivi</option>
+                            <option value="AI">Contenuto inappropriato (AI)</option>
+                            <option value="parole">Parole/pattern bannati</option>
+                            <option value="lingua">Lingua non consentita</option>
+                            <option value="spam">Spam cross-gruppo</option>
+                            <option value="ban">Ha causato ban</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Filtra per gruppo:</label>
+                        <select class="form-select" id="group-filter">
+                            <option value="">Tutti i gruppi</option>
+                            {% set groups_seen = [] %}
+                            {% for message in messages %}
+                                {% if message.group_name and message.group_name not in groups_seen %}
+                                    {% set _ = groups_seen.append(message.group_name) %}
+                                    <option value="{{ message.group_name }}">{{ message.group_name }}</option>
+                                {% endif %}
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Cerca utente:</label>
+                        <input type="text" class="form-control" id="user-search" placeholder="User ID o Username">
+                    </div>
+                </div>
+                <div class="row mt-3">
+                    <div class="col-12">
+                        <div class="d-flex gap-2">
+                            <button class="btn btn-primary" onclick="applyFilters()">
+                                <i class="bi bi-search me-1"></i>Applica Filtri
+                            </button>
+                            <button class="btn btn-outline-secondary" onclick="clearFilters()">
+                                <i class="bi bi-x-lg me-1"></i>Cancella Filtri
+                            </button>
+                            <button class="btn btn-outline-success" onclick="refreshMessages()">
+                                <i class="bi bi-arrow-clockwise me-1"></i>Aggiorna
+                            </button>
+                            <div class="dropdown">
+                                <button class="btn btn-outline-info dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                                    <i class="bi bi-gear me-1"></i>Limite: {{ limit }}
+                                </button>
+                                <ul class="dropdown-menu">
+                                    <li><a class="dropdown-item" href="?limit=15">15 messaggi</a></li>
+                                    <li><a class="dropdown-item" href="?limit=20">20 messaggi</a></li>
+                                    <li><a class="dropdown-item" href="?limit=30">30 messaggi</a></li>
+                                    <li><a class="dropdown-item" href="?limit=50">50 messaggi</a></li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Deleted Messages Table -->
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">
+                    <i class="bi bi-table me-2"></i>Messaggi Eliminati
+                </h5>
+                <span class="badge bg-danger">{{ messages|length }} eliminati</span>
+            </div>
+            <div class="card-body p-0">
+                {% if messages %}
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0" id="deleted-messages-table">
+                        <thead>
+                            <tr>
+                                <th>Timestamp</th>
+                                <th>Utente</th>
+                                <th>Messaggio</th>
+                                <th>Gruppo</th>
+                                <th>Motivo Eliminazione</th>
+                                <th class="text-center">Azioni</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for message in messages %}
+                            <tr data-user-id="{{ message.user_id }}" data-reason="{{ message.motivo_rifiuto }}" data-group="{{ message.group_name }}">
+                                <td>
+                                    <small title="{{ message.timestamp }}">
+                                        {{ formatDate(message.timestamp) }}
+                                    </small>
+                                </td>
+                                <td>
+                                    <div class="d-flex align-items-center">
+                                        <div class="bg-danger text-white rounded-circle d-flex align-items-center justify-content-center me-2" 
+                                             style="width: 32px; height: 32px; font-size: 0.75rem;">
+                                            <i class="bi bi-person"></i>
+                                        </div>
+                                        <div>
+                                            <strong>{{ message.username or 'N/A' }}</strong>
+                                            <br>
+                                            <small class="text-muted">ID: {{ message.user_id }}</small>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td>
+                                    <div class="text-truncate" style="max-width: 250px;" title="{{ message.messaggio }}">
+                                        {{ message.messaggio }}
+                                    </div>
+                                    {% if message.domanda == 'SI' %}
+                                    <small class="badge bg-warning mt-1">Domanda</small>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <span class="badge bg-info">{{ message.group_name or 'N/A' }}</span>
+                                </td>
+                                <td>
+                                    <div class="d-flex flex-column">
+                                        {% if 'AI' in message.motivo_rifiuto %}
+                                            <span class="badge bg-info mb-1">
+                                                <i class="bi bi-robot me-1"></i>AI Detection
+                                            </span>
+                                        {% elif 'parole' in message.motivo_rifiuto or 'pattern' in message.motivo_rifiuto %}
+                                            <span class="badge bg-secondary mb-1">
+                                                <i class="bi bi-filter me-1"></i>Filtro Diretto
+                                            </span>
+                                        {% elif 'lingua' in message.motivo_rifiuto %}
+                                            <span class="badge bg-warning mb-1">
+                                                <i class="bi bi-translate me-1"></i>Lingua
+                                            </span>
+                                        {% elif 'spam' in message.motivo_rifiuto %}
+                                            <span class="badge bg-danger mb-1">
+                                                <i class="bi bi-exclamation-triangle me-1"></i>Spam
+                                            </span>
+                                        {% else %}
+                                            <span class="badge bg-dark mb-1">
+                                                <i class="bi bi-question me-1"></i>Altro
+                                            </span>
+                                        {% endif %}
+                                        
+                                        <small class="text-muted text-truncate" style="max-width: 200px;" title="{{ message.motivo_rifiuto }}">
+                                            {{ message.motivo_rifiuto }}
+                                        </small>
+                                        
+                                        {% if 'ban' in message.motivo_rifiuto.lower() %}
+                                        <small class="badge bg-danger mt-1">
+                                            <i class="bi bi-person-x me-1"></i>Causato Ban
+                                        </small>
+                                        {% endif %}
+                                    </div>
+                                </td>
+                                <td class="text-center">
+                                    <div class="btn-group btn-group-sm">
+                                        <button class="btn btn-outline-info" onclick="viewDeletedMessageDetails('{{ message.user_id }}', '{{ message.messaggio|e }}', '{{ message.motivo_rifiuto|e }}', '{{ message.timestamp }}')" title="Dettagli completi">
+                                            <i class="bi bi-eye"></i>
+                                        </button>
+                                        <button class="btn btn-outline-primary" onclick="viewUserDetails('{{ message.user_id }}')" title="Dettagli utente">
+                                            <i class="bi bi-person"></i>
+                                        </button>
+                                        {% if 'ban' not in message.motivo_rifiuto.lower() %}
+                                        <button class="btn btn-outline-danger" onclick="banUserFromDeletedMessage('{{ message.user_id }}', '{{ message.username or message.user_id }}')" title="Banna utente">
+                                            <i class="bi bi-person-x"></i>
+                                        </button>
+                                        {% endif %}
+                                    </div>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="text-center py-5">
+                    <div class="display-4 text-muted mb-3">
+                        <i class="bi bi-check-circle"></i>
+                    </div>
+                    <h5 class="text-muted">Nessun messaggio eliminato</h5>
+                    <p class="text-muted">Non sono stati eliminati messaggi di recente o con i filtri attuali.</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Deleted Message Details Modal -->
+<div class="modal fade" id="deletedMessageDetailsModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="bi bi-trash me-2"></i>Dettagli Messaggio Eliminato
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="deleted-message-details-content">
+                    <!-- Contenuto caricato via JavaScript -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Chiudi</button>
+                <button type="button" class="btn btn-danger" id="ban-from-deleted-modal" style="display: none;">
+                    <i class="bi bi-person-x me-1"></i>Banna Utente
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- User Details Modal -->
+<div class="modal fade" id="userDetailsModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="bi bi-person-circle me-2"></i>Dettagli Utente
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="user-details-loading" class="text-center py-4">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Caricamento...</span>
+                    </div>
+                    <p class="text-muted mt-2">Caricamento dettagli utente...</p>
+                </div>
+                <div id="user-details-content" style="display: none;">
+                    <!-- Contenuto caricato via AJAX -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Chiudi</button>
+                <button type="button" class="btn btn-danger" id="ban-user-from-modal" style="display: none;">
+                    <i class="bi bi-person-x me-1"></i>Banna Utente
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Ban Confirmation Modal -->
+<div class="modal fade" id="banConfirmModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="bi bi-person-x me-2"></i>Conferma Ban
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p>Sei sicuro di voler bannare l'utente <strong id="ban-username-display"></strong>?</p>
+                <div class="mb-3">
+                    <label for="ban-reason-input" class="form-label">Motivo del ban:</label>
+                    <input type="text" class="form-control" id="ban-reason-input" placeholder="Inserisci il motivo del ban" value="Ban da dashboard - messaggio eliminato">
+                </div>
+                <div class="alert alert-warning">
+                    <i class="bi bi-exclamation-triangle me-2"></i>
+                    <strong>Attenzione:</strong> Questa azione bannerà l'utente da tutti i gruppi configurati.
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annulla</button>
+                <button type="button" class="btn btn-danger" id="confirm-ban-user-btn">
+                    <i class="bi bi-person-x me-1"></i>Conferma Ban
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let currentBanUserId = null;
+let currentDeletedMessageData = null;
+
+// Apply filters
+function applyFilters() {
+    const reasonFilter = document.getElementById('reason-filter').value;
+    const groupFilter = document.getElementById('group-filter').value;
+    const userSearch = document.getElementById('user-search').value.toLowerCase();
+    
+    const rows = document.querySelectorAll('#deleted-messages-table tbody tr');
+    let visibleCount = 0;
+    
+    rows.forEach(row => {
+        let show = true;
+        
+        // Filter by reason
+        if (reasonFilter) {
+            const reason = row.dataset.reason.toLowerCase();
+            if (!reason.includes(reasonFilter.toLowerCase())) {
+                show = false;
+            }
+        }
+        
+        // Filter by group
+        if (groupFilter && row.dataset.group !== groupFilter) {
+            show = false;
+        }
+        
+        // Filter by user search
+        if (userSearch) {
+            const userId = row.dataset.userId.toLowerCase();
+            const username = row.querySelector('strong').textContent.toLowerCase();
+            if (!userId.includes(userSearch) && !username.includes(userSearch)) {
+                show = false;
+            }
+        }
+        
+        if (show) {
+            row.style.display = '';
+            visibleCount++;
+        } else {
+            row.style.display = 'none';
+        }
+    });
+    
+    showAlert(`Filtri applicati: ${visibleCount} messaggi eliminati visibili`, 'info');
+}
+
+// Clear filters
+function clearFilters() {
+    document.getElementById('reason-filter').value = '';
+    document.getElementById('group-filter').value = '';
+    document.getElementById('user-search').value = '';
+    
+    const rows = document.querySelectorAll('#deleted-messages-table tbody tr');
+    rows.forEach(row => row.style.display = '');
+    
+    showAlert('Filtri cancellati', 'success');
+}
+
+// Refresh messages
+function refreshMessages() {
+    window.location.reload();
+}
+
+// View deleted message details
+function viewDeletedMessageDetails(userId, message, reason, timestamp) {
+    const modal = new bootstrap.Modal(document.getElementById('deletedMessageDetailsModal'));
+    const content = document.getElementById('deleted-message-details-content');
+    
+    currentDeletedMessageData = { userId, message, reason, timestamp };
+    
+    // Determina il tipo di violazione
+    let violationType = 'Altro';
+    let violationIcon = 'bi-question';
+    let violationColor = 'dark';
+    
+    if (reason.toLowerCase().includes('ai')) {
+        violationType = 'Rilevazione AI';
+        violationIcon = 'bi-robot';
+        violationColor = 'info';
+    } else if (reason.toLowerCase().includes('parole') || reason.toLowerCase().includes('pattern')) {
+        violationType = 'Filtro Diretto';
+        violationIcon = 'bi-filter';
+        violationColor = 'secondary';
+    } else if (reason.toLowerCase().includes('lingua')) {
+        violationType = 'Lingua Non Consentita';
+        violationIcon = 'bi-translate';
+        violationColor = 'warning';
+    } else if (reason.toLowerCase().includes('spam')) {
+        violationType = 'Spam Cross-Gruppo';
+        violationIcon = 'bi-exclamation-triangle';
+        violationColor = 'danger';
+    }
+    
+    const causedBan = reason.toLowerCase().includes('ban');
+    
+    content.innerHTML = `
+        <div class="row g-4">
+            <div class="col-12">
+                <div class="alert alert-danger">
+                    <div class="d-flex align-items-center mb-2">
+                        <i class="bi ${violationIcon} me-2 fs-4"></i>
+                        <h6 class="mb-0">Messaggio Eliminato - ${violationType}</h6>
+                    </div>
+                    <p class="mb-0"><strong>Motivo:</strong> ${reason}</p>
+                    ${causedBan ? '<p class="mb-0 text-danger"><strong><i class="bi bi-person-x me-1"></i>Questo messaggio ha causato il ban dell\'utente</strong></p>' : ''}
+                </div>
+            </div>
+            
+            <div class="col-12">
+                <h6>Messaggio Completo:</h6>
+                <div class="card">
+                    <div class="card-body">
+                        <p class="mb-0">${message}</p>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h6 class="mb-0">Dettagli Tecnici</h6>
+                    </div>
+                    <div class="card-body">
+                        <dl class="row mb-0">
+                            <dt class="col-4">User ID:</dt>
+                            <dd class="col-8">${userId}</dd>
+                            
+                            <dt class="col-4">Timestamp:</dt>
+                            <dd class="col-8">${formatDate(timestamp)}</dd>
+                            
+                            <dt class="col-4">Lunghezza:</dt>
+                            <dd class="col-8">${message.length} caratteri</dd>
+                            
+                            <dt class="col-4">Parole:</dt>
+                            <dd class="col-8">${message.split(' ').length} parole</dd>
+                        </dl>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h6 class="mb-0">Analisi Violazione</h6>
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <span class="badge bg-${violationColor} fs-6">
+                                <i class="bi ${violationIcon} me-1"></i>${violationType}
+                            </span>
+                        </div>
+                        
+                        <div class="mb-2">
+                            <strong>Gravità:</strong>
+                            ${causedBan ? '<span class="badge bg-danger">Alta (Ban automatico)</span>' : '<span class="badge bg-warning">Media</span>'}
+                        </div>
+                        
+                        <div class="mb-2">
+                            <strong>Azione Intrapresa:</strong>
+                            <span class="badge bg-danger">Messaggio Eliminato</span>
+                            ${causedBan ? '<span class="badge bg-danger ms-1">Utente Bannato</span>' : ''}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    // Show ban button if the message didn't already cause a ban
+    const banButton = document.getElementById('ban-from-deleted-modal');
+    if (!causedBan) {
+        banButton.style.display = 'inline-block';
+        banButton.onclick = function() {
+            modal.hide();
+            banUserFromDeletedMessage(userId, userId);
+        };
+    } else {
+        banButton.style.display = 'none';
+    }
+    
+    modal.show();
+}
+
+// View user details (riusa la funzione dal template messages.html)
+function viewUserDetails(userId) {
+    const modal = new bootstrap.Modal(document.getElementById('userDetailsModal'));
+    modal.show();
+    
+    document.getElementById('user-details-loading').style.display = 'block';
+    document.getElementById('user-details-content').style.display = 'none';
+    document.getElementById('ban-user-from-modal').style.display = 'none';
+    
+    fetch(`/api/user/search/${userId}`)
+        .then(response => response.json())
+        .then(data => {
+            document.getElementById('user-details-loading').style.display = 'none';
+            document.getElementById('user-details-content').style.display = 'block';
+            
+            if (data.error) {
+                document.getElementById('user-details-content').innerHTML = `
+                    <div class="alert alert-danger">
+                        <i class="bi bi-exclamation-triangle me-2"></i>
+                        Errore: ${data.error}
+                    </div>
+                `;
+                return;
+            }
+            
+            if (!data.is_banned) {
+                document.getElementById('ban-user-from-modal').style.display = 'inline-block';
+                document.getElementById('ban-user-from-modal').onclick = function() {
+                    modal.hide();
+                    banUserFromDeletedMessage(userId, data.user_id);
+                };
+            }
+            
+            const content = `
+                <div class="row g-4">
+                    <div class="col-md-6">
+                        <div class="card">
+                            <div class="card-header">
+                                <h6 class="mb-0">Informazioni Generali</h6>
+                            </div>
+                            <div class="card-body">
+                                <dl class="row mb-0">
+                                    <dt class="col-4">User ID:</dt>
+                                    <dd class="col-8">${data.user_id}</dd>
+                                    
+                                    <dt class="col-4">Bannato:</dt>
+                                    <dd class="col-8">
+                                        <span class="badge bg-${data.is_banned ? 'danger' : 'success'}">
+                                            ${data.is_banned ? 'SÌ' : 'NO'}
+                                        </span>
+                                    </dd>
+                                    
+                                    <dt class="col-4">Tot. Messaggi:</dt>
+                                    <dd class="col-8">${formatNumber(data.total_messages)}</dd>
+                                    
+                                    <dt class="col-4">Approvati:</dt>
+                                    <dd class="col-8 text-success">${formatNumber(data.approved_messages)}</dd>
+                                    
+                                    <dt class="col-4">Rifiutati:</dt>
+                                    <dd class="col-8 text-danger">${formatNumber(data.rejected_messages)}</dd>
+                                </dl>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="col-md-6">
+                        <div class="card">
+                            <div class="card-header">
+                                <h6 class="mb-0">Statistiche</h6>
+                            </div>
+                            <div class="card-body">
+                                <div class="mb-3">
+                                    <label class="form-label">Tasso di Approvazione</label>
+                                    <div class="progress">
+                                        <div class="progress-bar bg-${data.approval_rate >= 80 ? 'success' : data.approval_rate >= 50 ? 'warning' : 'danger'}" 
+                                             style="width: ${data.approval_rate}%">
+                                            ${data.approval_rate.toFixed(1)}%
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <label class="form-label">Gruppi</label>
+                                    <div class="d-flex flex-wrap gap-1">
+                                        ${data.groups.map(group => `<span class="badge bg-primary">${group}</span>`).join('')}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            document.getElementById('user-details-content').innerHTML = content;
+        })
+        .catch(error => {
+            document.getElementById('user-details-loading').style.display = 'none';
+            document.getElementById('user-details-content').style.display = 'block';
+            document.getElementById('user-details-content').innerHTML = `
+                <div class="alert alert-danger">
+                    <i class="bi bi-exclamation-triangle me-2"></i>
+                    Errore durante il caricamento dei dettagli utente
+                </div>
+            `;
+            console.error('Errore dettagli utente:', error);
+        });
+}
+
+// Ban user from deleted message
+function banUserFromDeletedMessage(userId, username) {
+    currentBanUserId = userId;
+    document.getElementById('ban-username-display').textContent = username;
+    
+    const modal = new bootstrap.Modal(document.getElementById('banConfirmModal'));
+    modal.show();
+}
+
+// Confirm ban
+document.getElementById('confirm-ban-user-btn').addEventListener('click', function() {
+    const button = this;
+    const originalText = showLoading(button);
+    const reason = document.getElementById('ban-reason-input').value.trim() || 'Ban da dashboard - messaggio eliminato';
+    
+    fetch('/api/user/ban', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            user_id: currentBanUserId,
+            reason: reason
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        hideLoading(button, originalText);
+        
+        if (data.success) {
+            showAlert(`Utente ${currentBanUserId} bannato con successo! (${data.groups_banned}/${data.total_groups} gruppi)`, 'success');
+            
+            const modal = bootstrap.Modal.getInstance(document.getElementById('banConfirmModal'));
+            modal.hide();
+            
+            // Update row to show banned status
+            const row = document.querySelector(`tr[data-user-id="${currentBanUserId}"]`);
+            if (row) {
+                const avatar = row.querySelector('.rounded-circle');
+                if (avatar) {
+                    avatar.className = avatar.className.replace('bg-success', 'bg-danger').replace('bg-primary', 'bg-danger');
+                }
+                
+                // Add ban indicator to the row
+                const actionsCell = row.querySelector('td:last-child');
+                const banButton = actionsCell.querySelector('.btn-outline-danger');
+                if (banButton) {
+                    banButton.remove();
+                }
+            }
+        } else {
+            showAlert(`Errore durante il ban: ${data.message}`, 'danger');
+        }
+    })
+    .catch(error => {
+        hideLoading(button, originalText);
+        showAlert('Errore di comunicazione con il server', 'danger');
+        console.error('Errore ban:', error);
+    });
+});
+
+// Enter key handlers
+document.getElementById('user-search').addEventListener('keypress', function(e) {
+    if (e.key === 'Enter') {
+        applyFilters();
+    }
+});
+
+// Auto-refresh every 60 seconds if page is visible
+setInterval(() => {
+    if (document.visibilityState === 'visible') {
+        // Silently update message count
+        fetch(window.location.href)
+            .then(response => response.text())
+            .then(html => {
+                const parser = new DOMParser();
+                const newDoc = parser.parseFromString(html, 'text/html');
+                const newBadge = newDoc.querySelector('.badge.bg-danger');
+                const currentBadge = document.querySelector('.badge.bg-danger');
+                
+                if (newBadge && currentBadge && newBadge.textContent !== currentBadge.textContent) {
+                    // Show notification of new deleted messages
+                    const newCount = parseInt(newBadge.textContent);
+                    const currentCount = parseInt(currentBadge.textContent.split(' ')[0]);
+                    
+                    if (newCount > currentCount) {
+                        showAlert(`${newCount - currentCount} nuovi messaggi eliminati`, 'info');
+                        currentBadge.textContent = newBadge.textContent;
+                    }
+                }
+            })
+            .catch(error => {
+                console.log('Auto-refresh failed:', error);
+            });
+    }
+}, 60000);
+
+// Initialize tooltips for truncated text
+document.addEventListener('DOMContentLoaded', function() {
+    // Add click handler for expanding truncated messages
+    document.querySelectorAll('.text-truncate[title]').forEach(element => {
+        element.style.cursor = 'pointer';
+        element.addEventListener('click', function() {
+            if (this.style.maxWidth) {
+                this.style.maxWidth = '';
+                this.classList.remove('text-truncate');
+            } else {
+                this.style.maxWidth = '250px';
+                this.classList.add('text-truncate');
+            }
+        });
+    });
+});
+</script>
+{% endblock %}

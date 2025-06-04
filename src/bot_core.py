@@ -1363,6 +1363,8 @@ class TelegramModerationBot:
         
         return False
 
+    # SOSTITUISCI il metodo start() in bot_core.py con questo:
+
     def start(self):
         """Avvia il bot con gestione silenziosa degli errori di polling."""
         self.logger.info(f"Avvio del Bot di Moderazione Telegram (PID: {os.getpid()})...")
@@ -1423,24 +1425,167 @@ class TelegramModerationBot:
 
         self.logger.info("Bot configurato e pronto. Avvio polling...")
         try:
-            self.application.run_polling(
-                allowed_updates=Update.ALL_TYPES,
-                drop_pending_updates=self.config_manager.get('drop_pending_updates_on_start', True)
-            )
+            # IMPORTANTE: Controlla se siamo nel thread principale
+            import threading
+            is_main_thread = threading.current_thread() is threading.main_thread()
+            
+            if is_main_thread:
+                self.logger.info("Avvio nel thread principale - signal handlers abilitati")
+                # Thread principale: usa configurazione normale
+                self.application.run_polling(
+                    allowed_updates=Update.ALL_TYPES,
+                    drop_pending_updates=self.config_manager.get('drop_pending_updates_on_start', True)
+                )
+            else:
+                self.logger.info("Avvio in thread secondario - signal handlers disabilitati")
+                # Thread secondario: usa approccio diverso per permettere stop controllato
+                
+                async def start_bot_async():
+                    """Avvia il bot in modo asincrono senza signal handlers."""
+                    try:
+                        await self.application.initialize()
+                        await self.application.start()
+                        await self.application.updater.start_polling(
+                            allowed_updates=Update.ALL_TYPES,
+                            drop_pending_updates=self.config_manager.get('drop_pending_updates_on_start', True)
+                        )
+                        
+                        self.logger.info("Bot polling avviato con successo in thread secondario")
+                        
+                        # NUOVO: Loop controllabile per permettere stop pulito
+                        while self._is_running:
+                            await asyncio.sleep(0.5)  # Check ogni 500ms se dobbiamo fermarci
+                            
+                            # Verifica se l'updater è ancora in running
+                            if not self.application.updater.running:
+                                self.logger.warning("Updater si è fermato inaspettatamente")
+                                break
+                                
+                    except Exception as e:
+                        self.logger.error(f"Errore durante polling asincrono: {e}", exc_info=True)
+                    finally:
+                        # Cleanup più robusto
+                        self.logger.info("Inizio cleanup bot asincrono...")
+                        try:
+                            if hasattr(self.application, 'updater') and self.application.updater:
+                                if self.application.updater.running:
+                                    self.logger.info("Fermando updater...")
+                                    await self.application.updater.stop()
+                            
+                            if hasattr(self.application, 'stop'):
+                                self.logger.info("Fermando application...")
+                                await self.application.stop()
+                            
+                            if hasattr(self.application, 'shutdown'):
+                                self.logger.info("Shutdown application...")
+                                await self.application.shutdown()
+                                
+                        except Exception as e:
+                            self.logger.warning(f"Errore durante cleanup asincrono: {e}")
+                        
+                        self.logger.info("Cleanup asincrono completato")
+                
+                # Esegui nel loop asyncio del thread corrente con gestione stop
+                try:
+                    asyncio.run(start_bot_async())
+                except KeyboardInterrupt:
+                    self.logger.info("Bot fermato da KeyboardInterrupt in thread secondario")
+                except Exception as e:
+                    self.logger.error(f"Errore nel loop asyncio del thread secondario: {e}", exc_info=True)
+                
         except KeyboardInterrupt:
             self.logger.info("Polling interrotto da tastiera (Ctrl+C).")
+        except RuntimeError as e:
+            if "set_wakeup_fd" in str(e) or "signal handler" in str(e):
+                self.logger.error("Errore signal handler - il bot deve essere eseguito nel thread principale per gestire i segnali")
+            elif "coroutine" in str(e):
+                self.logger.warning(f"Errore asincrono gestito: {e}")
+            else:
+                self.logger.error(f"Errore runtime durante il polling: {e}", exc_info=True)
         except Exception as e:
-            self.logger.critical(f"Errore critico durante il polling: {e}", exc_info=True)
+            self.logger.error(f"Errore durante il polling: {e}", exc_info=True)
         finally:
             self.stop()
 
     def stop(self):
         """Ferma lo scheduler e altre operazioni in preparazione alla chiusura."""
         self.logger.info("Arresto del bot in corso...")
+        
+        # Imposta flag di stop PRIMA di tutto
         self._is_running = False
         self.scheduler_active = False
         
-        self.user_counters.force_save()
-        self.logger.info("Contatori utente salvati.")
+        # Ferma l'applicazione se esiste
+        if hasattr(self, 'application') and self.application:
+            try:
+                import threading
+                is_main_thread = threading.current_thread() is threading.main_thread()
+                
+                if is_main_thread:
+                    # Thread principale: usa metodi sincroni
+                    self.logger.info("Stop dal thread principale")
+                    try:
+                        if hasattr(self.application, 'stop') and callable(self.application.stop):
+                            self.application.stop()
+                    except Exception as e:
+                        self.logger.warning(f"Errore stop application (main thread): {e}")
+                else:
+                    # Thread secondario: il cleanup sarà gestito dal finally di start_bot_async()
+                    self.logger.info("Stop da thread secondario - delegando al cleanup asincrono")
+                    # Non facciamo nulla qui, il flag _is_running = False farà uscire dal loop
+                    # e il cleanup sarà gestito dal finally di start_bot_async()
+                
+            except Exception as e:
+                self.logger.warning(f"Errore durante stop dell'applicazione: {e}")
+        
+        # Salva contatori
+        if hasattr(self, 'user_counters'):
+            try:
+                self.user_counters.force_save()
+                self.logger.info("Contatori utente salvati.")
+            except Exception as e:
+                self.logger.warning(f"Errore salvataggio contatori: {e}")
 
         self.logger.info("Bot arrestato.")
+
+
+    def force_stop(self):
+        """Forza l'arresto del bot anche se non risponde normalmente."""
+        self.logger.warning("Force stop del bot richiesto")
+        
+        self._is_running = False
+        self.scheduler_active = False
+        
+        # Prova a fermare tutto brutalmente
+        if hasattr(self, 'application') and self.application:
+            try:
+                # Cancella tutti i task asyncio se possibile
+                import asyncio
+                try:
+                    loop = asyncio.get_running_loop()
+                    if loop:
+                        for task in asyncio.all_tasks(loop):
+                            if not task.done():
+                                task.cancel()
+                except RuntimeError:
+                    pass  # Nessun loop in esecuzione
+                
+                # Forza chiusura applicazione
+                if hasattr(self.application, 'updater') and self.application.updater:
+                    try:
+                        if hasattr(self.application.updater, '_request'):
+                            self.application.updater._request = None
+                    except:
+                        pass
+                        
+            except Exception as e:
+                self.logger.error(f"Errore durante force stop: {e}")
+        
+        # Salva contatori se possibile
+        try:
+            if hasattr(self, 'user_counters'):
+                self.user_counters.force_save()
+        except:
+            pass
+            
+        self.logger.warning("Force stop completato")

@@ -1,4 +1,4 @@
-{% extends "dashboard/base.html" %}
+{% extends "base.html" %}
 
 {% block title %}Dashboard - Bot Moderazione{% endblock %}
 
@@ -283,6 +283,8 @@
 </div>
 {% endblock %}
 
+// 2. SOSTITUISCI tutto il blocco JavaScript nel template index.html con questo:
+
 {% block extra_js %}
 <script>
 document.addEventListener('DOMContentLoaded', function() {
@@ -290,7 +292,7 @@ document.addEventListener('DOMContentLoaded', function() {
     function updateUptime() {
         const uptimeElement = document.getElementById('uptime-display');
         if (uptimeElement) {
-            let seconds = parseInt(uptimeElement.textContent);
+            let seconds = parseInt(uptimeElement.textContent.replace(/[^\d]/g, ''));
             if (!isNaN(seconds)) {
                 seconds += 1;
                 uptimeElement.textContent = formatUptime(seconds);
@@ -315,28 +317,25 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    // Nessuna dipendenza da template
-    document.addEventListener('DOMContentLoaded', function() {
-        function checkBotStatusAndStartTimer() {
-            fetch('/api/bot/status')
-                .then(response => response.json())
-                .then(data => {
-                    if (data.is_running) {
-                        setInterval(updateUptime, 1000);
-                    }
-                })
-                .catch(error => console.log('Status check failed:', error));
-        }
-        
-        checkBotStatusAndStartTimer();
-    });
+    // Check bot status and start timer if running
+    function checkBotStatusAndStartTimer() {
+        fetch('/api/bot/status')
+            .then(response => response.json())
+            .then(data => {
+                if (data.is_running) {
+                    setInterval(updateUptime, 1000);
+                }
+            })
+            .catch(error => console.log('Status check failed:', error));
+    }
+    
+    checkBotStatusAndStartTimer();
 
     // Load recent activity
     function loadRecentActivity() {
         fetch('/messages?limit=5')
             .then(response => response.text())
             .then(html => {
-                // Extract table content from response
                 const parser = new DOMParser();
                 const doc = parser.parseFromString(html, 'text/html');
                 const table = doc.querySelector('table');
@@ -345,7 +344,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 const contentDiv = document.getElementById('recent-activity-content');
                 
                 if (table && table.rows.length > 1) {
-                    // Create simplified table for preview
                     const previewTable = document.createElement('table');
                     previewTable.className = 'table table-sm';
                     previewTable.innerHTML = `
@@ -360,7 +358,6 @@ document.addEventListener('DOMContentLoaded', function() {
                         <tbody></tbody>
                     `;
                     
-                    // Copy first 5 rows
                     const tbody = previewTable.querySelector('tbody');
                     for (let i = 1; i <= Math.min(6, table.rows.length - 1); i++) {
                         const row = table.rows[i].cloneNode(true);
@@ -383,7 +380,7 @@ document.addEventListener('DOMContentLoaded', function() {
             });
     }
 
-    // Load recent activity after page load
+    // Load recent activity after a short delay
     setTimeout(loadRecentActivity, 1000);
 });
 </script>

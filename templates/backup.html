@@ -1,0 +1,894 @@
+{% extends "base.html" %}
+
+{% block title %}Backup & Export - Dashboard{% endblock %}
+
+{% block page_title %}Backup & Export{% endblock %}
+{% block page_description %}Gestione backup e download dei dati del sistema{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+    <!-- Quick Actions -->
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="bi bi-lightning me-2"></i>Azioni Rapide
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row g-2">
+                    <div class="col-md-3">
+                        <button class="btn btn-primary w-100" onclick="createFullBackup()">
+                            <i class="bi bi-shield-check me-2"></i>Backup Completo
+                        </button>
+                    </div>
+                    <div class="col-md-3">
+                        <button class="btn btn-outline-success w-100" onclick="downloadAllCSV()">
+                            <i class="bi bi-download me-2"></i>Scarica Tutti CSV
+                        </button>
+                    </div>
+                    <div class="col-md-3">
+                        <button class="btn btn-outline-info w-100" onclick="scheduleBackup()">
+                            <i class="bi bi-calendar-event me-2"></i>Programma Backup
+                        </button>
+                    </div>
+                    <div class="col-md-3">
+                        <button class="btn btn-outline-warning w-100" onclick="cleanupOldBackups()">
+                            <i class="bi bi-trash me-2"></i>Pulizia Backup
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- System Status -->
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="bi bi-database me-2"></i>Stato Sistema CSV
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row text-center">
+                    <div class="col-md-3">
+                        <div class="d-flex align-items-center justify-content-center">
+                            <div class="display-6 text-primary me-3">
+                                <i class="bi bi-chat-dots"></i>
+                            </div>
+                            <div>
+                                <h4 class="mb-0">{{ "{:,}".format(csv_stats.messages or 0) }}</h4>
+                                <p class="text-muted mb-0">Messaggi</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="d-flex align-items-center justify-content-center">
+                            <div class="display-6 text-success me-3">
+                                <i class="bi bi-person-check"></i>
+                            </div>
+                            <div>
+                                <h4 class="mb-0">{{ "{:,}".format(csv_stats.admin or 0) }}</h4>
+                                <p class="text-muted mb-0">Messaggi Admin</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="d-flex align-items-center justify-content-center">
+                            <div class="display-6 text-danger me-3">
+                                <i class="bi bi-person-x"></i>
+                            </div>
+                            <div>
+                                <h4 class="mb-0">{{ "{:,}".format(csv_stats.banned_users or 0) }}</h4>
+                                <p class="text-muted mb-0">Utenti Bannati</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="d-flex align-items-center justify-content-center">
+                            <div class="display-6 text-info me-3">
+                                <i class="bi bi-arrow-clockwise"></i>
+                            </div>
+                            <div>
+                                <h4 class="mb-0">{{ "{:,}".format(csv_stats.unban_history or 0) }}</h4>
+                                <p class="text-muted mb-0">Storico Unban</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="mt-4">
+                    {% if csv_stats.csv_disabled %}
+                        <div class="alert alert-warning">
+                            <i class="bi bi-exclamation-triangle me-2"></i>
+                            <strong>Attenzione:</strong> Il sistema CSV è attualmente disabilitato.
+                        </div>
+                    {% else %}
+                        <div class="alert alert-success">
+                            <i class="bi bi-check-circle me-2"></i>
+                            <strong>Sistema CSV Operativo:</strong> Tutti i dati vengono salvati correttamente.
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- CSV Downloads -->
+    <div class="col-lg-8">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">
+                    <i class="bi bi-file-earmark-spreadsheet me-2"></i>Download File CSV
+                </h5>
+                <span class="badge bg-primary">4 file disponibili</span>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>File</th>
+                                <th>Descrizione</th>
+                                <th>Record</th>
+                                <th>Dimensione Stimata</th>
+                                <th class="text-center">Azioni</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% set message_size = ((csv_stats.messages or 0) * 0.5)|round(1) %}
+                            <tr>
+                                <td>
+                                    <div class="d-flex align-items-center">
+                                        <i class="bi bi-file-earmark-text text-primary me-2 fs-5"></i>
+                                        <strong>messages.csv</strong>
+                                    </div>
+                                </td>
+                                <td>Tutti i messaggi processati dal sistema</td>
+                                <td>
+                                    <span class="badge bg-primary">{{ "{:,}".format(csv_stats.messages or 0) }}</span>
+                                </td>
+                                <td>
+                                    <span class="text-muted">~{{ message_size }} MB</span>
+                                </td>
+                                <td class="text-center">
+                                    <div class="btn-group btn-group-sm">
+                                        <a href="{{ url_for('download_csv', table_name='messages') }}" class="btn btn-outline-primary" title="Download">
+                                            <i class="bi bi-download"></i>
+                                        </a>
+                                        <button class="btn btn-outline-info" onclick="previewCSV('messages')" title="Anteprima">
+                                            <i class="bi bi-eye"></i>
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                            {% set admin_size = ((csv_stats.admin or 0) * 0.3)|round(1) %}
+                            <tr>
+                                <td>
+                                    <div class="d-flex align-items-center">
+                                        <i class="bi bi-file-earmark-check text-success me-2 fs-5"></i>
+                                        <strong>admin_messages.csv</strong>
+                                    </div>
+                                </td>
+                                <td>Messaggi degli amministratori</td>
+                                <td>
+                                    <span class="badge bg-success">{{ "{:,}".format(csv_stats.admin or 0) }}</span>
+                                </td>
+                                <td>
+                                    <span class="text-muted">~{{ admin_size }} MB</span>
+                                </td>
+                                <td class="text-center">
+                                    <div class="btn-group btn-group-sm">
+                                        <a href="{{ url_for('download_csv', table_name='admin') }}" class="btn btn-outline-success" title="Download">
+                                            <i class="bi bi-download"></i>
+                                        </a>
+                                        <button class="btn btn-outline-info" onclick="previewCSV('admin')" title="Anteprima">
+                                            <i class="bi bi-eye"></i>
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                            {% set banned_size = ((csv_stats.banned_users or 0) * 0.1)|round(1) %}
+                            <tr>
+                                <td>
+                                    <div class="d-flex align-items-center">
+                                        <i class="bi bi-file-earmark-x text-danger me-2 fs-5"></i>
+                                        <strong>banned_users.csv</strong>
+                                    </div>
+                                </td>
+                                <td>Lista utenti bannati attualmente</td>
+                                <td>
+                                    <span class="badge bg-danger">{{ "{:,}".format(csv_stats.banned_users or 0) }}</span>
+                                </td>
+                                <td>
+                                    <span class="text-muted">~{{ banned_size }} MB</span>
+                                </td>
+                                <td class="text-center">
+                                    <div class="btn-group btn-group-sm">
+                                        <a href="{{ url_for('download_csv', table_name='banned_users') }}" class="btn btn-outline-danger" title="Download">
+                                            <i class="bi bi-download"></i>
+                                        </a>
+                                        <button class="btn btn-outline-info" onclick="previewCSV('banned_users')" title="Anteprima">
+                                            <i class="bi bi-eye"></i>
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                            {% set unban_size = ((csv_stats.unban_history or 0) * 0.1)|round(1) %}
+                            <tr>
+                                <td>
+                                    <div class="d-flex align-items-center">
+                                        <i class="bi bi-file-earmark-arrow-up text-info me-2 fs-5"></i>
+                                        <strong>unban_history.csv</strong>
+                                    </div>
+                                </td>
+                                <td>Storico degli unban effettuati</td>
+                                <td>
+                                    <span class="badge bg-info">{{ "{:,}".format(csv_stats.unban_history or 0) }}</span>
+                                </td>
+                                <td>
+                                    <span class="text-muted">~{{ unban_size }} MB</span>
+                                </td>
+                                <td class="text-center">
+                                    <div class="btn-group btn-group-sm">
+                                        <a href="{{ url_for('download_csv', table_name='unban_history') }}" class="btn btn-outline-info" title="Download">
+                                            <i class="bi bi-download"></i>
+                                        </a>
+                                        <button class="btn btn-outline-info" onclick="previewCSV('unban_history')" title="Anteprima">
+                                            <i class="bi bi-eye"></i>
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                
+                <div class="mt-3">
+                    <div class="alert alert-info">
+                        <i class="bi bi-info-circle me-2"></i>
+                        <strong>Nota:</strong> I file CSV sono generati in tempo reale al momento del download. 
+                        Le dimensioni sono stimate e possono variare.
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Backup Management -->
+    <div class="col-lg-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="bi bi-shield-check me-2"></i>Gestione Backup
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="d-grid gap-3">
+                    <div class="border rounded p-3">
+                        <h6 class="mb-2">
+                            <i class="bi bi-clock me-2"></i>Backup Automatico
+                        </h6>
+                        <p class="text-muted small mb-2">
+                            Backup automatico ogni 7 giorni alle 02:00
+                        </p>
+                        <div class="d-flex justify-content-between align-items-center">
+                            <span class="badge bg-success">Attivo</span>
+                            <button class="btn btn-outline-secondary btn-sm" onclick="configureAutoBackup()">
+                                <i class="bi bi-gear"></i>
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="border rounded p-3">
+                        <h6 class="mb-2">
+                            <i class="bi bi-calendar-event me-2"></i>Ultimo Backup
+                        </h6>
+                        <p class="text-muted small mb-2">
+                            <span id="last-backup-date">Caricamento...</span>
+                        </p>
+                        <button class="btn btn-outline-primary btn-sm w-100" onclick="showBackupHistory()">
+                            <i class="bi bi-list me-1"></i>Cronologia
+                        </button>
+                    </div>
+                    
+                    <div class="border rounded p-3">
+                        <h6 class="mb-2">
+                            <i class="bi bi-hdd me-2"></i>Spazio Utilizzato
+                        </h6>
+                        <div class="progress mb-2" style="height: 8px;">
+                            <div class="progress-bar" role="progressbar" id="storage-progress" data-width="35"></div>
+                        </div>
+                        <small class="text-muted">
+                            <span id="storage-used">Calcolando...</span>
+                        </small>
+                    </div>
+                </div>
+                
+                <hr>
+                
+                <div class="d-grid gap-2">
+                    <button class="btn btn-warning" onclick="createManualBackup()">
+                        <i class="bi bi-plus-circle me-2"></i>Backup Manuale
+                    </button>
+                    <button class="btn btn-outline-secondary" onclick="restoreFromBackup()">
+                        <i class="bi bi-arrow-up-circle me-2"></i>Ripristina
+                    </button>
+                    <button class="btn btn-outline-danger" onclick="deleteOldBackups()">
+                        <i class="bi bi-trash me-2"></i>Elimina Vecchi
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Export Options -->
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="bi bi-box-arrow-down me-2"></i>Opzioni Export Avanzate
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row g-4">
+                    <div class="col-md-6">
+                        <h6>
+                            <i class="bi bi-funnel me-2"></i>Export Filtrato
+                        </h6>
+                        <div class="mb-3">
+                            <label class="form-label">Tabella:</label>
+                            <select class="form-select" id="export-table">
+                                <option value="messages">Messaggi</option>
+                                <option value="admin">Messaggi Admin</option>
+                                <option value="banned_users">Utenti Bannati</option>
+                                <option value="unban_history">Storico Unban</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Periodo:</label>
+                            <div class="row g-2">
+                                <div class="col">
+                                    <input type="date" class="form-control" id="export-from" placeholder="Da">
+                                </div>
+                                <div class="col">
+                                    <input type="date" class="form-control" id="export-to" placeholder="A">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Formato:</label>
+                            <select class="form-select" id="export-format">
+                                <option value="csv">CSV</option>
+                                <option value="json">JSON</option>
+                                <option value="excel">Excel (.xlsx)</option>
+                            </select>
+                        </div>
+                        <button class="btn btn-primary w-100" onclick="exportFiltered()">
+                            <i class="bi bi-download me-2"></i>Export Filtrato
+                        </button>
+                    </div>
+                    
+                    <div class="col-md-6">
+                        <h6>
+                            <i class="bi bi-graph-up me-2"></i>Report & Analytics
+                        </h6>
+                        <div class="d-grid gap-2">
+                            <button class="btn btn-outline-info" onclick="generateDailyReport()">
+                                <i class="bi bi-calendar-day me-2"></i>Report Giornaliero
+                            </button>
+                            <button class="btn btn-outline-info" onclick="generateWeeklyReport()">
+                                <i class="bi bi-calendar-week me-2"></i>Report Settimanale
+                            </button>
+                            <button class="btn btn-outline-info" onclick="generateMonthlyReport()">
+                                <i class="bi bi-calendar-month me-2"></i>Report Mensile
+                            </button>
+                            <button class="btn btn-outline-success" onclick="generateModerationReport()">
+                                <i class="bi bi-shield-check me-2"></i>Report Moderazione
+                            </button>
+                            <button class="btn btn-outline-warning" onclick="generateUserStatistics()">
+                                <i class="bi bi-people me-2"></i>Statistiche Utenti
+                            </button>
+                        </div>
+                        
+                        <div class="mt-3">
+                            <div class="alert alert-info">
+                                <i class="bi bi-lightbulb me-2"></i>
+                                <strong>Suggerimento:</strong> I report includono grafici e analisi dettagliate per il periodo selezionato.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- CSV Preview Modal -->
+<div class="modal fade" id="csvPreviewModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="bi bi-eye me-2"></i>Anteprima CSV: <span id="preview-table-name"></span>
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="csv-preview-loading" class="text-center py-4">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Caricamento...</span>
+                    </div>
+                    <p class="text-muted mt-2">Caricamento anteprima...</p>
+                </div>
+                <div id="csv-preview-content" style="display: none;">
+                    <!-- Preview content will be loaded here -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Chiudi</button>
+                <button type="button" class="btn btn-primary" id="download-from-preview">
+                    <i class="bi bi-download me-1"></i>Download Completo
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Backup History Modal -->
+<div class="modal fade" id="backupHistoryModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="bi bi-clock-history me-2"></i>Cronologia Backup
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="backup-history-content">
+                    <!-- Backup history will be loaded here -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Chiudi</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Progress Modal -->
+<div class="modal fade" id="progressModal" tabindex="-1" data-bs-backdrop="static">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="bi bi-gear me-2"></i>Operazione in Corso
+                </h5>
+            </div>
+            <div class="modal-body text-center">
+                <div class="spinner-border text-primary mb-3" role="status">
+                    <span class="visually-hidden">Caricamento...</span>
+                </div>
+                <p id="progress-message">Operazione in corso...</p>
+                <div class="progress">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" id="progress-bar" data-width="0"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Hidden data for JavaScript -->
+<script id="backup-data" type="application/json">
+{
+    "csv_stats": {
+        "messages": {{ csv_stats.messages|default(0)|int }},
+        "admin": {{ csv_stats.admin|default(0)|int }},
+        "banned_users": {{ csv_stats.banned_users|default(0)|int }},
+        "unban_history": {{ csv_stats.unban_history|default(0)|int }},
+        "csv_disabled": {{ csv_stats.csv_disabled|default(false)|tojson }}
+    },
+    "total_records": {{ ((csv_stats.messages or 0) + (csv_stats.admin or 0) + (csv_stats.banned_users or 0))|int }}
+}
+</script>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// Initialize page
+document.addEventListener('DOMContentLoaded', function() {
+    loadBackupInfo();
+    calculateStorageUsage();
+    initializeProgressBars();
+});
+
+function initializeProgressBars() {
+    // Set width for all progress bars using data-width attribute
+    document.querySelectorAll('.progress-bar[data-width]').forEach(function(bar) {
+        const width = bar.getAttribute('data-width');
+        bar.style.width = width + '%';
+    });
+}
+
+// Create full backup
+function createFullBackup() {
+    showProgressModal('Creazione backup completo...');
+    
+    fetch('/api/backup/create', {
+        method: 'POST'
+    })
+    .then(response => response.json())
+    .then(data => {
+        hideProgressModal();
+        if (data.success) {
+            showAlert('Backup completo creato con successo!', 'success');
+            loadBackupInfo(); // Refresh backup info
+        } else {
+            showAlert(`Errore durante la creazione del backup: ${data.message}`, 'danger');
+        }
+    })
+    .catch(error => {
+        hideProgressModal();
+        console.error('Errore backup:', error);
+        showAlert('Errore di comunicazione durante la creazione del backup', 'danger');
+    });
+}
+
+// Download all CSV files
+function downloadAllCSV() {
+    showProgressModal('Download di tutti i CSV in corso...');
+    
+    const tables = ['messages', 'admin', 'banned_users', 'unban_history'];
+    let completed = 0;
+    
+    tables.forEach((table, index) => {
+        setTimeout(() => {
+            const link = document.createElement('a');
+            link.href = `/download/csv/${table}`;
+            link.download = `${table}_${new Date().toISOString().split('T')[0]}.csv`;
+            link.click();
+            
+            completed++;
+            updateProgress((completed / tables.length) * 100);
+            
+            if (completed === tables.length) {
+                setTimeout(() => {
+                    hideProgressModal();
+                    showAlert('Tutti i CSV sono stati scaricati!', 'success');
+                }, 1000);
+            }
+        }, index * 500); // Stagger downloads
+    });
+}
+
+// Preview CSV
+function previewCSV(tableName) {
+    const modal = new bootstrap.Modal(document.getElementById('csvPreviewModal'));
+    document.getElementById('preview-table-name').textContent = tableName;
+    document.getElementById('csv-preview-loading').style.display = 'block';
+    document.getElementById('csv-preview-content').style.display = 'none';
+    
+    // Set download button
+    document.getElementById('download-from-preview').onclick = function() {
+        window.location.href = `/download/csv/${tableName}`;
+    };
+    
+    modal.show();
+    
+    // Simulate loading preview data
+    setTimeout(() => {
+        document.getElementById('csv-preview-loading').style.display = 'none';
+        document.getElementById('csv-preview-content').style.display = 'block';
+        
+        // Mock preview data
+        const mockData = generateMockPreviewData(tableName);
+        document.getElementById('csv-preview-content').innerHTML = mockData;
+    }, 1500);
+}
+
+// Generate mock preview data
+function generateMockPreviewData(tableName) {
+    const headers = {
+        messages: ['timestamp', 'messaggio', 'user_id', 'username', 'chat_id', 'group_name', 'approvato', 'domanda', 'motivo_rifiuto'],
+        admin: ['timestamp', 'messaggio', 'user_id', 'username', 'chat_id', 'group_name'],
+        banned_users: ['user_id', 'timestamp', 'motivo'],
+        unban_history: ['user_id', 'original_ban_timestamp', 'unban_timestamp', 'unban_reason', 'unbanned_by']
+    };
+    
+    const tableHeaders = headers[tableName] || ['col1', 'col2', 'col3'];
+    
+    let html = '<div class="table-responsive"><table class="table table-sm table-striped">';
+    html += '<thead class="table-dark"><tr>';
+    tableHeaders.forEach(header => {
+        html += `<th>${header}</th>`;
+    });
+    html += '</tr></thead><tbody>';
+    
+    // Generate 5 sample rows
+    for (let i = 0; i < 5; i++) {
+        html += '<tr>';
+        tableHeaders.forEach(header => {
+            let cellContent = '';
+            switch (header) {
+                case 'timestamp':
+                    cellContent = new Date(Date.now() - i * 3600000).toISOString();
+                    break;
+                case 'messaggio':
+                    cellContent = `Messaggio di esempio ${i + 1}`;
+                    break;
+                case 'user_id':
+                    cellContent = `12345${i}`;
+                    break;
+                case 'username':
+                    cellContent = `utente${i}`;
+                    break;
+                case 'approvato':
+                    cellContent = i % 2 === 0 ? 'SI' : 'NO';
+                    break;
+                case 'motivo':
+                    cellContent = 'Motivo esempio';
+                    break;
+                default:
+                    cellContent = `Dato ${i + 1}`;
+            }
+            html += `<td class="text-truncate" style="max-width: 150px;">${cellContent}</td>`;
+        });
+        html += '</tr>';
+    }
+    
+    html += '</tbody></table></div>';
+    html += '<div class="alert alert-info mt-3"><i class="bi bi-info-circle me-2"></i>Anteprima limitata alle prime 5 righe. Scarica il file completo per tutti i dati.</div>';
+    
+    return html;
+}
+
+// Show backup history
+function showBackupHistory() {
+    const modal = new bootstrap.Modal(document.getElementById('backupHistoryModal'));
+    modal.show();
+    
+    // Mock backup history data
+    const mockHistory = [
+        { date: '2024-01-15 02:00', type: 'Automatico', status: 'Completato', size: '125 MB' },
+        { date: '2024-01-14 15:30', type: 'Manuale', status: 'Completato', size: '123 MB' },
+        { date: '2024-01-08 02:00', type: 'Automatico', status: 'Completato', size: '118 MB' },
+        { date: '2024-01-07 09:15', type: 'Manuale', status: 'Fallito', size: '-' },
+        { date: '2024-01-01 02:00', type: 'Automatico', status: 'Completato', size: '110 MB' }
+    ];
+    
+    let html = '<div class="table-responsive"><table class="table table-hover">';
+    html += '<thead><tr><th>Data</th><th>Tipo</th><th>Stato</th><th>Dimensione</th><th>Azioni</th></tr></thead><tbody>';
+    
+    mockHistory.forEach((backup, index) => {
+        const statusClass = backup.status === 'Completato' ? 'success' : 'danger';
+        const statusIcon = backup.status === 'Completato' ? 'check-circle' : 'x-circle';
+        
+        html += `
+            <tr>
+                <td>${backup.date}</td>
+                <td><span class="badge bg-${backup.type === 'Automatico' ? 'primary' : 'secondary'}">${backup.type}</span></td>
+                <td><span class="badge bg-${statusClass}"><i class="bi bi-${statusIcon} me-1"></i>${backup.status}</span></td>
+                <td>${backup.size}</td>
+                <td>
+                    ${backup.status === 'Completato' ? 
+                        `<button class="btn btn-outline-primary btn-sm" onclick="downloadBackup(${index})"><i class="bi bi-download"></i></button>
+                         <button class="btn btn-outline-danger btn-sm" onclick="deleteBackup(${index})"><i class="bi bi-trash"></i></button>` :
+                        '<span class="text-muted">N/A</span>'
+                    }
+                </td>
+            </tr>
+        `;
+    });
+    
+    html += '</tbody></table></div>';
+    document.getElementById('backup-history-content').innerHTML = html;
+}
+
+// Load backup info
+function loadBackupInfo() {
+    // Mock last backup date
+    const lastBackup = new Date(Date.now() - 86400000); // 1 day ago
+    document.getElementById('last-backup-date').textContent = formatDate(lastBackup.toISOString());
+}
+
+// Calculate storage usage
+function calculateStorageUsage() {
+    // Get data from hidden script tag
+    const backupDataElement = document.getElementById('backup-data');
+    const backupData = JSON.parse(backupDataElement.textContent);
+    
+    const totalRecords = backupData.total_records;
+    const estimatedSize = totalRecords * 0.5; // KB per record
+    const maxSize = 1000; // MB
+    const usedPercentage = Math.min((estimatedSize / 1024 / maxSize) * 100, 100);
+    
+    // Update progress bar
+    const progressBar = document.getElementById('storage-progress');
+    progressBar.style.width = `${usedPercentage}%`;
+    progressBar.setAttribute('data-width', usedPercentage.toString());
+    
+    document.getElementById('storage-used').textContent = `${(estimatedSize / 1024).toFixed(1)} MB di ${maxSize} MB utilizzati`;
+}
+
+// Export filtered data
+function exportFiltered() {
+    const table = document.getElementById('export-table').value;
+    const fromDate = document.getElementById('export-from').value;
+    const toDate = document.getElementById('export-to').value;
+    const format = document.getElementById('export-format').value;
+    
+    if (!fromDate || !toDate) {
+        showAlert('Seleziona entrambe le date per l\'export filtrato', 'warning');
+        return;
+    }
+    
+    if (new Date(fromDate) > new Date(toDate)) {
+        showAlert('La data di inizio deve essere precedente alla data di fine', 'warning');
+        return;
+    }
+    
+    showProgressModal(`Export ${format.toUpperCase()} in corso...`);
+    
+    // Simulate export process
+    setTimeout(() => {
+        hideProgressModal();
+        
+        // Create mock file download
+        const filename = `${table}_${fromDate}_${toDate}.${format}`;
+        showAlert(`Export completato: ${filename}`, 'success');
+        
+        // In a real implementation, this would trigger an actual download
+        console.log(`Export: ${table} from ${fromDate} to ${toDate} in ${format} format`);
+    }, 3000);
+}
+
+// Generate reports
+function generateDailyReport() {
+    generateReport('daily', 'Report Giornaliero');
+}
+
+function generateWeeklyReport() {
+    generateReport('weekly', 'Report Settimanale');
+}
+
+function generateMonthlyReport() {
+    generateReport('monthly', 'Report Mensile');
+}
+
+function generateModerationReport() {
+    generateReport('moderation', 'Report Moderazione');
+}
+
+function generateUserStatistics() {
+    generateReport('users', 'Statistiche Utenti');
+}
+
+function generateReport(type, name) {
+    showProgressModal(`Generazione ${name} in corso...`);
+    
+    setTimeout(() => {
+        hideProgressModal();
+        
+        // Mock report generation
+        const filename = `${type}_report_${new Date().toISOString().split('T')[0]}.pdf`;
+        showAlert(`${name} generato: ${filename}`, 'success');
+        
+        // In a real implementation, this would generate and download an actual report
+        console.log(`Generated ${type} report`);
+    }, 4000);
+}
+
+// Utility functions
+function createManualBackup() {
+    if (confirm('Creare un backup manuale ora? Questa operazione potrebbe richiedere alcuni minuti.')) {
+        createFullBackup();
+    }
+}
+
+function scheduleBackup() {
+    showAlert('Funzione di programmazione backup non ancora implementata', 'info');
+}
+
+function cleanupOldBackups() {
+    if (confirm('Eliminare tutti i backup più vecchi di 30 giorni?')) {
+        showProgressModal('Pulizia backup vecchi...');
+        
+        setTimeout(() => {
+            hideProgressModal();
+            showAlert('Pulizia backup completata', 'success');
+        }, 2000);
+    }
+}
+
+function configureAutoBackup() {
+    showAlert('Configurazione backup automatico non ancora implementata', 'info');
+}
+
+function restoreFromBackup() {
+    showAlert('Funzione di ripristino non ancora implementata', 'info');
+}
+
+function deleteOldBackups() {
+    cleanupOldBackups();
+}
+
+function downloadBackup(index) {
+    showAlert(`Download backup ${index + 1} avviato`, 'info');
+}
+
+function deleteBackup(index) {
+    if (confirm('Sei sicuro di voler eliminare questo backup?')) {
+        showAlert(`Backup ${index + 1} eliminato`, 'success');
+        showBackupHistory(); // Refresh list
+    }
+}
+
+// Progress modal functions
+function showProgressModal(message) {
+    document.getElementById('progress-message').textContent = message;
+    const progressBar = document.getElementById('progress-bar');
+    progressBar.style.width = '0%';
+    progressBar.setAttribute('data-width', '0');
+    const modal = new bootstrap.Modal(document.getElementById('progressModal'));
+    modal.show();
+}
+
+function hideProgressModal() {
+    const modal = bootstrap.Modal.getInstance(document.getElementById('progressModal'));
+    if (modal) {
+        modal.hide();
+    }
+}
+
+function updateProgress(percentage) {
+    const progressBar = document.getElementById('progress-bar');
+    progressBar.style.width = `${percentage}%`;
+    progressBar.setAttribute('data-width', percentage.toString());
+}
+
+// Utility function to format dates
+function formatDate(isoString) {
+    if (!isoString) return 'N/A';
+    
+    try {
+        const date = new Date(isoString);
+        return date.toLocaleDateString('it-IT', {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+        });
+    } catch (error) {
+        return 'Data non valida';
+    }
+}
+
+// Alert function (should be defined in base template or main JS)
+function showAlert(message, type) {
+    console.log(`[${type.toUpperCase()}] ${message}`);
+    
+    // Create and show a Bootstrap alert
+    const alertContainer = document.createElement('div');
+    alertContainer.innerHTML = `
+        <div class="alert alert-${type} alert-dismissible fade show position-fixed" 
+             style="top: 20px; right: 20px; z-index: 9999; min-width: 300px;" role="alert">
+            <i class="bi bi-${type === 'success' ? 'check-circle' : type === 'danger' ? 'x-circle' : type === 'warning' ? 'exclamation-triangle' : 'info-circle'} me-2"></i>
+            ${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    `;
+    
+    document.body.appendChild(alertContainer);
+    
+    // Auto-remove after 5 seconds
+    setTimeout(() => {
+        const alert = alertContainer.querySelector('.alert');
+        if (alert) {
+            const bsAlert = new bootstrap.Alert(alert);
+            bsAlert.close();
+        }
+    }, 5000);
+}

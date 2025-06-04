@@ -2,6 +2,7 @@ import os
 import sys
 import asyncio
 import threading
+import signal
 import json
 from datetime import datetime
 from typing import Dict, Any, Optional
@@ -33,6 +34,9 @@ class DashboardApp:
         # Setup logging per dashboard
         self.setup_dashboard_logging()
         
+        # NUOVO: Setup funzioni template PRIMA di setup_routes
+        self.setup_template_functions()
+        
         # Bot instance (inizialmente None)
         self.bot: Optional[TelegramModerationBot] = None
         self.bot_thread: Optional[threading.Thread] = None
@@ -59,6 +63,99 @@ class DashboardApp:
             formatter = logging.Formatter('%(asctime)s - DASHBOARD - %(levelname)s - %(message)s')
             handler.setFormatter(formatter)
             dashboard_logger.addHandler(handler)
+
+    def setup_template_functions(self):
+        """Configura funzioni personalizzate per i template Jinja2."""
+        
+        @self.app.template_filter('format_number')
+        def format_number_filter(value):
+            """Formatta un numero con separatori delle migliaia."""
+            try:
+                if value is None:
+                    return '0'
+                return f"{int(value):,}".replace(',', '.')
+            except (ValueError, TypeError):
+                return str(value)
+        
+        @self.app.template_global()
+        def formatNumber(value):
+            """Funzione globale per formattare numeri nei template."""
+            try:
+                if value is None:
+                    return '0'
+                return f"{int(value):,}".replace(',', '.')
+            except (ValueError, TypeError):
+                return str(value)
+        
+        @self.app.template_global()
+        def formatPercentage(value, decimals=1):
+            """Formatta una percentuale."""
+            try:
+                if value is None:
+                    return '0%'
+                return f"{float(value):.{decimals}f}%"
+            except (ValueError, TypeError):
+                return str(value)
+        
+        @self.app.template_global()
+        def formatDateTime(timestamp_str, format='%d/%m/%Y %H:%M'):
+            """Formatta una data/ora."""
+            try:
+                if isinstance(timestamp_str, str):
+                    dt = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+                    return dt.strftime(format)
+                return str(timestamp_str)
+            except:
+                return str(timestamp_str)
+        
+        @self.app.template_global()
+        def timeAgo(timestamp_str):
+            """Calcola il tempo trascorso."""
+            try:
+                if isinstance(timestamp_str, str):
+                    dt = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+                    dt = dt.replace(tzinfo=None)  # Remove timezone
+                    diff = datetime.now() - dt
+                    
+                    if diff.days > 0:
+                        return f"{diff.days} giorni fa"
+                    elif diff.seconds > 3600:
+                        hours = diff.seconds // 3600
+                        return f"{hours} ore fa"
+                    elif diff.seconds > 60:
+                        minutes = diff.seconds // 60
+                        return f"{minutes} minuti fa"
+                    else:
+                        return "Ora"
+                return str(timestamp_str)
+            except:
+                return str(timestamp_str)
+
+        @self.app.template_global()
+        def formatDate(timestamp_str, format='%d/%m/%Y %H:%M'):
+            """Alias per formatDateTime per compatibilità."""
+            return formatDateTime(timestamp_str, format)
+
+        @self.app.template_global()
+        def formatUptime(seconds):
+            """Formatta l'uptime in modo user-friendly."""
+            try:
+                seconds = int(seconds) if seconds else 0
+                days = seconds // 86400
+                hours = (seconds % 86400) // 3600
+                mins = (seconds % 3600) // 60
+                secs = seconds % 60
+                
+                if days > 0:
+                    return f"{days}g {hours}h {mins}m"
+                elif hours > 0:
+                    return f"{hours}h {mins}m {secs}s"
+                elif mins > 0:
+                    return f"{mins}m {secs}s"
+                else:
+                    return f"{secs}s"
+            except:
+                return "0s"
     
     def setup_routes(self):
         """Configura tutte le route della dashboard."""
@@ -70,7 +167,7 @@ class DashboardApp:
             bot_status = self.get_bot_status()
             recent_stats = self.get_recent_activity_stats()
             
-            return render_template('dashboard/index.html', 
+            return render_template('index.html', 
                                  bot_status=bot_status,
                                  recent_stats=recent_stats)
         
@@ -91,6 +188,37 @@ class DashboardApp:
             
             return redirect(url_for('index'))
         
+        @self.app.route('/api/bot/force-stop', methods=['POST'])
+        def api_force_stop_bot():
+            """API per force stop del bot."""
+            try:
+                if self.bot and hasattr(self.bot, 'force_stop'):
+                    self.bot.force_stop()
+                    
+                    # Aspetta un momento e reset
+                    import time
+                    time.sleep(2)
+                    
+                    self.bot = None
+                    self.user_manager = None
+                    self.prompt_manager = None
+                    self.config_editor = None
+                    
+                    return jsonify({
+                        'success': True,
+                        'message': 'Force stop eseguito'
+                    })
+                else:
+                    return jsonify({
+                        'success': False,
+                        'message': 'Bot non attivo o force stop non disponibile'
+                    })
+            except Exception as e:
+                return jsonify({
+                    'success': False,
+                    'message': f'Errore force stop: {str(e)}'
+                })
+        
         @self.app.route('/bot/stop', methods=['POST'])
         def stop_bot():
             """Ferma il bot."""
@@ -99,7 +227,18 @@ class DashboardApp:
                 flash('Bot fermato con successo!', 'success')
             except Exception as e:
                 self.logger.error(f"Errore stop bot: {e}")
-                flash(f'Errore stop bot: {str(e)}', 'danger')
+                
+                # Fallback: prova force stop se disponibile
+                try:
+                    if self.bot and hasattr(self.bot, 'force_stop'):
+                        self.logger.info("Tentando force stop come fallback...")
+                        self.bot.force_stop()
+                        self.bot = None
+                        flash('Bot fermato con force stop!', 'warning')
+                    else:
+                        flash(f'Errore stop bot: {str(e)}', 'danger')
+                except Exception as e2:
+                    flash(f'Errore stop bot: {str(e)} - Force stop fallito: {str(e2)}', 'danger')
             
             return redirect(url_for('index'))
         
@@ -119,7 +258,7 @@ class DashboardApp:
                 return redirect(url_for('index'))
             
             recent_messages = self.bot.get_recent_messages(limit) if self.bot else []
-            return render_template('dashboard/messages.html', 
+            return render_template('messages.html', 
                                  messages=recent_messages, 
                                  limit=limit)
         
@@ -133,7 +272,7 @@ class DashboardApp:
                 return redirect(url_for('index'))
             
             deleted_msgs = self.bot.get_recent_deleted_messages(limit) if self.bot else []
-            return render_template('dashboard/deleted_messages.html', 
+            return render_template('deleted_messages.html', 
                                  messages=deleted_msgs, 
                                  limit=limit)
         
@@ -148,7 +287,7 @@ class DashboardApp:
                 return redirect(url_for('index'))
             
             banned_users_list = self.user_manager.get_banned_users_detailed(limit)
-            return render_template('dashboard/banned_users.html', 
+            return render_template('banned_users.html', 
                                  banned_users=banned_users_list, 
                                  limit=limit)
         
@@ -217,7 +356,7 @@ class DashboardApp:
                 return redirect(url_for('index'))
             
             current_config = self.config_editor.get_editable_config()
-            return render_template('dashboard/config.html', config=current_config)
+            return render_template('config.html', config=current_config)
         
         @self.app.route('/api/config/update', methods=['POST'])
         def api_config_update():
@@ -264,7 +403,7 @@ class DashboardApp:
             current_prompt = self.prompt_manager.get_current_prompt()
             prompt_history = self.prompt_manager.get_prompt_history()
             
-            return render_template('dashboard/system_prompt.html', 
+            return render_template('system_prompt.html', 
                                  current_prompt=current_prompt,
                                  prompt_history=prompt_history)
         
@@ -308,7 +447,7 @@ class DashboardApp:
             if self.bot and self.bot.csv_manager:
                 csv_stats = self.bot.csv_manager.get_csv_stats()
             
-            return render_template('dashboard/backup.html', csv_stats=csv_stats)
+            return render_template('backup.html', csv_stats=csv_stats)
         
         @self.app.route('/api/backup/create', methods=['POST'])
         def api_create_backup():
@@ -370,7 +509,7 @@ class DashboardApp:
             activity_summary = self.user_manager.get_user_activity_summary(days=7)
             daily_stats = self.user_manager.get_message_statistics_by_timeframe('daily')
             
-            return render_template('dashboard/analytics.html',
+            return render_template('analytics.html',
                                  insights=insights,
                                  activity_summary=activity_summary,
                                  daily_stats=daily_stats[-30:])  # Ultimi 30 giorni
@@ -399,13 +538,13 @@ class DashboardApp:
         # --- Error Handlers ---
         @self.app.errorhandler(404)
         def not_found(error):
-            return render_template('dashboard/error.html', 
+            return render_template('error.html', 
                                  error_code=404, 
                                  error_message="Pagina non trovata"), 404
         
         @self.app.errorhandler(500)
         def internal_error(error):
-            return render_template('dashboard/error.html', 
+            return render_template('error.html', 
                                  error_code=500, 
                                  error_message="Errore interno del server"), 500
     
@@ -417,7 +556,12 @@ class DashboardApp:
             raise Exception("Bot già in esecuzione")
         
         def run_bot():
+            """Funzione che esegue il bot in un thread separato con loop asyncio dedicato."""
             try:
+                # Crea un nuovo loop asyncio per questo thread
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                
                 self.bot = TelegramModerationBot()
                 
                 # Inizializza managers con il bot
@@ -438,38 +582,106 @@ class DashboardApp:
                 )
                 
                 self.logger.info("Bot avviato dalla dashboard")
-                self.bot.start()
                 
+                # Avvia il bot nel loop asyncio del thread
+                try:
+                    self.bot.start()
+                except KeyboardInterrupt:
+                    self.logger.info("Bot interrotto da KeyboardInterrupt")
+                except Exception as e:
+                    self.logger.error(f"Errore durante l'esecuzione del bot: {e}", exc_info=True)
+                finally:
+                    # Cleanup
+                    try:
+                        # Chiudi il loop asyncio
+                        loop.close()
+                    except:
+                        pass
+                    
             except Exception as e:
-                self.logger.error(f"Errore esecuzione bot: {e}")
+                self.logger.error(f"Errore critico nel thread del bot: {e}", exc_info=True)
                 self.bot = None
         
         self.bot_thread = threading.Thread(target=run_bot, daemon=True)
         self.bot_thread.start()
         
-        # Aspetta un momento per verificare che il bot si sia avviato
+        # Aspetta più tempo per il bot in thread secondario
         import time
-        time.sleep(2)
+        self.logger.info("Attendendo inizializzazione bot...")
         
+        for i in range(10):  # Aspetta fino a 10 secondi
+            time.sleep(1)
+            if self.bot and hasattr(self.bot, '_is_running') and self.bot._is_running:
+                self.logger.info(f"Bot inizializzato con successo dopo {i+1} secondi")
+                return
+        
+        # Se arriviamo qui, il bot potrebbe non essersi avviato
         if not self.bot:
-            raise Exception("Errore avvio bot")
+            raise Exception("Errore avvio bot - bot instance non creata")
+        elif not hasattr(self.bot, '_is_running') or not self.bot._is_running:
+            raise Exception("Errore avvio bot - bot non in stato running")
+        else:
+            self.logger.warning("Bot avviato ma stato incerto")
     
     def stop_bot_async(self):
-        """Ferma il bot."""
+        """Ferma il bot con timeout e force stop se necessario."""
         if self.bot:
             try:
+                self.logger.info("Inizio stop del bot...")
+                
+                # 1. Stop normale
                 self.bot.stop()
+                
+                # 2. Aspetta che il thread termini con timeout più lungo
+                if self.bot_thread and self.bot_thread.is_alive():
+                    self.logger.info("Attendendo terminazione thread bot...")
+                    self.bot_thread.join(timeout=15)  # Aumentato a 15 secondi
+                    
+                    # 3. Se il thread è ancora vivo, prova force stop
+                    if self.bot_thread.is_alive():
+                        self.logger.warning("Thread non si è fermato, tentando force stop...")
+                        
+                        if hasattr(self.bot, 'force_stop'):
+                            self.bot.force_stop()
+                        
+                        # Aspetta ancora un po'
+                        self.bot_thread.join(timeout=5)
+                        
+                        if self.bot_thread.is_alive():
+                            self.logger.error("Thread del bot non si è fermato nemmeno con force stop")
+                            # In questo caso, semplicemente procediamo
+                            # Il thread daemon si fermerà quando l'applicazione si chiude
+                        else:
+                            self.logger.info("Force stop riuscito")
+                    else:
+                        self.logger.info("Thread bot terminato correttamente")
+                
                 self.logger.info("Bot fermato dalla dashboard")
+                
             except Exception as e:
-                self.logger.error(f"Errore stop bot: {e}")
+                self.logger.error(f"Errore durante stop bot: {e}", exc_info=True)
             finally:
+                # Reset stato sempre
                 self.bot = None
-        
-        if self.bot_thread and self.bot_thread.is_alive():
-            # Il thread dovrebbe terminare automaticamente quando il bot si ferma
-            pass
+                self.user_manager = None
+                self.prompt_manager = None
+                self.config_editor = None
     
     # --- Metodi helper ---
+
+    def get_bot_debug_info(self) -> Dict[str, Any]:
+        """Restituisce informazioni di debug sul bot."""
+        if not self.bot:
+            return {'bot_exists': False, 'thread_alive': bool(self.bot_thread and self.bot_thread.is_alive())}
+        
+        return {
+            'bot_exists': True,
+            'thread_alive': bool(self.bot_thread and self.bot_thread.is_alive()),
+            'is_running': getattr(self.bot, '_is_running', False),
+            'has_application': hasattr(self.bot, 'application'),
+            'application_running': hasattr(self.bot, 'application') and self.bot.application and hasattr(self.bot.application, 'updater') and getattr(self.bot.application.updater, 'running', False),
+            'scheduler_active': getattr(self.bot, 'scheduler_active', False)
+        }
     
     def get_bot_status(self) -> Dict[str, Any]:
         """Restituisce lo stato del bot per la dashboard."""
@@ -530,14 +742,14 @@ def setup_template_context(app):
             'app_version': '1.0.0'
         }
 
-
 # --- Funzione principale ---
 def create_app():
     """Factory function per creare l'app Flask."""
     dashboard = DashboardApp()
+    # NOTA: setup_template_context non è più necessario qui 
+    # perché le funzioni sono già configurate in __init__
     setup_template_context(dashboard.app)
     return dashboard
-
 
 if __name__ == '__main__':
     # CARICA .env file prima di tutto

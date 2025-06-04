@@ -1,0 +1,759 @@
+{% extends "base.html" %}
+
+{% block title %}Configurazioni - Dashboard{% endblock %}
+
+{% block page_title %}Configurazioni Sistema{% endblock %}
+{% block page_description %}Gestione delle impostazioni del bot di moderazione{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+    <!-- Quick Actions -->
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="bi bi-lightning me-2"></i>Azioni Rapide
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row g-2">
+                    <div class="col-md-3">
+                        <button class="btn btn-primary w-100" onclick="saveAllConfigurations()">
+                            <i class="bi bi-save me-2"></i>Salva Tutto
+                        </button>
+                    </div>
+                    <div class="col-md-3">
+                        <button class="btn btn-outline-secondary w-100" onclick="reloadConfigurations()">
+                            <i class="bi bi-arrow-clockwise me-2"></i>Ricarica
+                        </button>
+                    </div>
+                    <div class="col-md-3">
+                        <button class="btn btn-outline-warning w-100" onclick="exportConfigurations()">
+                            <i class="bi bi-download me-2"></i>Esporta
+                        </button>
+                    </div>
+                    <div class="col-md-3">
+                        <button class="btn btn-outline-info w-100" onclick="createBackup()">
+                            <i class="bi bi-shield-check me-2"></i>Backup
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Parole Bannate -->
+    <div class="col-lg-6">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">
+                    <i class="bi bi-x-octagon me-2"></i>Parole Bannate
+                </h5>
+                <span class="badge bg-danger">{{ config.banned_words|length }} parole</span>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label for="banned-words-textarea" class="form-label">Lista parole/frasi bannate (una per riga):</label>
+                    <textarea class="form-control" id="banned-words-textarea" rows="8" placeholder="Inserisci parole o frasi bannate, una per riga">{% for word in config.banned_words %}{{ word }}
+{% endfor %}</textarea>
+                    <small class="text-muted">Queste parole/frasi causeranno l'eliminazione automatica dei messaggi</small>
+                </div>
+                <div class="d-flex gap-2">
+                    <button class="btn btn-primary" onclick="saveBannedWords()">
+                        <i class="bi bi-save me-1"></i>Salva
+                    </button>
+                    <button class="btn btn-outline-secondary" onclick="resetBannedWords()">
+                        <i class="bi bi-arrow-counterclockwise me-1"></i>Reset
+                    </button>
+                    <button class="btn btn-outline-info" onclick="addCommonBannedWords()">
+                        <i class="bi bi-plus-lg me-1"></i>Aggiungi Comuni
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Parole Whitelist -->
+    <div class="col-lg-6">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">
+                    <i class="bi bi-check-circle me-2"></i>Parole Whitelist
+                </h5>
+                <span class="badge bg-success">{{ config.whitelist_words|length }} parole</span>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label for="whitelist-words-textarea" class="form-label">Lista parole/frasi sempre consentite (una per riga):</label>
+                    <textarea class="form-control" id="whitelist-words-textarea" rows="8" placeholder="Inserisci parole o frasi sempre consentite, una per riga">{% for word in config.whitelist_words %}{{ word }}
+{% endfor %}</textarea>
+                    <small class="text-muted">Messaggi contenenti queste parole/frasi saranno sempre approvati</small>
+                </div>
+                <div class="d-flex gap-2">
+                    <button class="btn btn-success" onclick="saveWhitelistWords()">
+                        <i class="bi bi-save me-1"></i>Salva
+                    </button>
+                    <button class="btn btn-outline-secondary" onclick="resetWhitelistWords()">
+                        <i class="bi bi-arrow-counterclockwise me-1"></i>Reset
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Utenti Esenti (Admin) -->
+    <div class="col-lg-6">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">
+                    <i class="bi bi-person-check me-2"></i>Utenti Amministratori
+                </h5>
+                <span class="badge bg-warning">{{ config.exempt_users|length }} admin</span>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label for="exempt-users-textarea" class="form-label">Lista User ID o Username admin (uno per riga):</label>
+                    <textarea class="form-control" id="exempt-users-textarea" rows="6" placeholder="Inserisci User ID numerici o @username, uno per riga">{% for user in config.exempt_users %}{{ user }}
+{% endfor %}</textarea>
+                    <small class="text-muted">Questi utenti non saranno soggetti a moderazione</small>
+                </div>
+                <div class="d-flex gap-2">
+                    <button class="btn btn-warning" onclick="saveExemptUsers()">
+                        <i class="bi bi-save me-1"></i>Salva
+                    </button>
+                    <button class="btn btn-outline-secondary" onclick="resetExemptUsers()">
+                        <i class="bi bi-arrow-counterclockwise me-1"></i>Reset
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Impostazioni Generali -->
+    <div class="col-lg-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="bi bi-gear me-2"></i>Impostazioni Generali
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-12">
+                        <label for="allowed-languages" class="form-label">Lingue Consentite:</label>
+                        <select class="form-select" id="allowed-languages" multiple>
+                            <option value="it" {% if 'it' in config.allowed_languages %}selected{% endif %}>Italiano</option>
+                            <option value="en" {% if 'en' in config.allowed_languages %}selected{% endif %}>Inglese</option>
+                            <option value="fr" {% if 'fr' in config.allowed_languages %}selected{% endif %}>Francese</option>
+                            <option value="es" {% if 'es' in config.allowed_languages %}selected{% endif %}>Spagnolo</option>
+                            <option value="de" {% if 'de' in config.allowed_languages %}selected{% endif %}>Tedesco</option>
+                        </select>
+                        <small class="text-muted">Tenere premuto Ctrl per selezionare multiple lingue</small>
+                    </div>
+                    
+                    <div class="col-md-6">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="auto-approve-short" {% if config.auto_approve_short_messages %}checked{% endif %}>
+                            <label class="form-check-label" for="auto-approve-short">
+                                Auto-approva messaggi brevi
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <div class="col-md-6">
+                        <label for="short-message-length" class="form-label">Lunghezza max messaggi brevi:</label>
+                        <input type="number" class="form-control" id="short-message-length" value="{{ config.short_message_max_length }}" min="1" max="20">
+                    </div>
+                    
+                    <div class="col-md-6">
+                        <label for="first-messages-threshold" class="form-label">Soglia primi messaggi:</label>
+                        <input type="number" class="form-control" id="first-messages-threshold" value="{{ config.first_messages_threshold }}" min="1" max="10">
+                        <small class="text-muted">Numero di messaggi considerati "primi"</small>
+                    </div>
+                    
+                    <div class="col-md-6">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="rules-command-enabled" {% if config.rules_command_enabled %}checked{% endif %}>
+                            <label class="form-check-label" for="rules-command-enabled">
+                                Abilita comando /rules
+                            </label>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="mt-3">
+                    <button class="btn btn-primary" onclick="saveGeneralSettings()">
+                        <i class="bi bi-save me-1"></i>Salva Impostazioni
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Night Mode -->
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">
+                    <i class="bi bi-moon me-2"></i>Modalità Notturna
+                </h5>
+                <div class="form-check form-switch">
+                    <input class="form-check-input" type="checkbox" id="night-mode-enabled" {% if config.night_mode.enabled %}checked{% endif %}>
+                    <label class="form-check-label" for="night-mode-enabled">Abilitata</label>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-md-3">
+                        <label for="night-start-hour" class="form-label">Ora Inizio:</label>
+                        <input type="time" class="form-control" id="night-start-hour" value="{{ config.night_mode.start_hour }}">
+                    </div>
+                    
+                    <div class="col-md-3">
+                        <label for="night-end-hour" class="form-label">Ora Fine:</label>
+                        <input type="time" class="form-control" id="night-end-hour" value="{{ config.night_mode.end_hour }}">
+                    </div>
+                    
+                    <div class="col-md-3">
+                        <label for="grace-period" class="form-label">Periodo di Grazia (secondi):</label>
+                        <input type="number" class="form-control" id="grace-period" value="{{ config.night_mode.grace_period_seconds }}" min="0" max="300">
+                    </div>
+                    
+                    <div class="col-md-3">
+                        <label class="form-label">Stato Attuale:</label>
+                        <div>
+                            <span id="night-mode-status" class="badge bg-secondary">Verificando...</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="row mt-3">
+                    <div class="col-12">
+                        <label for="night-mode-groups" class="form-label">Gruppi Night Mode (Chat ID, uno per riga):</label>
+                        <textarea class="form-control" id="night-mode-groups" rows="4" placeholder="Inserisci i Chat ID dei gruppi, uno per riga">{% for group_id in config.night_mode.night_mode_groups %}{{ group_id }}
+{% endfor %}</textarea>
+                        <small class="text-muted">Solo i gruppi in questa lista saranno soggetti alla modalità notturna</small>
+                    </div>
+                </div>
+                
+                <div class="mt-3">
+                    <div class="d-flex gap-2">
+                        <button class="btn btn-primary" onclick="saveNightModeSettings()">
+                            <i class="bi bi-save me-1"></i>Salva Night Mode
+                        </button>
+                        <button class="btn btn-outline-warning" onclick="testNightModeNow()">
+                            <i class="bi bi-moon me-1"></i>Test Attivazione
+                        </button>
+                        <button class="btn btn-outline-info" onclick="checkNightModeStatus()">
+                            <i class="bi bi-clock me-1"></i>Verifica Stato
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Spam Detector -->
+    <div class="col-lg-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="bi bi-shield-exclamation me-2"></i>Rilevamento Spam
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label for="spam-time-window" class="form-label">Finestra Temporale (ore):</label>
+                        <input type="number" class="form-control" id="spam-time-window" value="{{ config.spam_detector.time_window_hours }}" min="0.1" max="24" step="0.1">
+                    </div>
+                    
+                    <div class="col-md-6">
+                        <label for="spam-similarity" class="form-label">Soglia Similarità:</label>
+                        <input type="number" class="form-control" id="spam-similarity" value="{{ config.spam_detector.similarity_threshold }}" min="0.1" max="1.0" step="0.01">
+                    </div>
+                    
+                    <div class="col-md-6">
+                        <label for="spam-min-groups" class="form-label">Gruppi Minimi:</label>
+                        <input type="number" class="form-control" id="spam-min-groups" value="{{ config.spam_detector.min_groups }}" min="2" max="10">
+                    </div>
+                    
+                    <div class="col-md-6">
+                        <div class="mt-4">
+                            <button class="btn btn-primary w-100" onclick="saveSpamDetectorSettings()">
+                                <i class="bi bi-save me-1"></i>Salva
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="mt-3">
+                    <div class="alert alert-info">
+                        <i class="bi bi-info-circle me-2"></i>
+                        <strong>Spam Detector:</strong> Rileva messaggi simili inviati in più gruppi nella finestra temporale specificata.
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Messaggio Regole -->
+    <div class="col-lg-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="bi bi-card-text me-2"></i>Messaggio Regole
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label for="rules-message" class="form-label">Testo del messaggio /rules:</label>
+                    <textarea class="form-control" id="rules-message" rows="8" placeholder="Inserisci il messaggio che verrà inviato con il comando /rules">{{ config.rules_message }}</textarea>
+                    <small class="text-muted">Supporta formattazione Markdown</small>
+                </div>
+                
+                <div class="d-flex gap-2">
+                    <button class="btn btn-primary" onclick="saveRulesMessage()">
+                        <i class="bi bi-save me-1"></i>Salva
+                    </button>
+                    <button class="btn btn-outline-secondary" onclick="previewRulesMessage()">
+                        <i class="bi bi-eye me-1"></i>Anteprima
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Preview Modal -->
+<div class="modal fade" id="previewModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="bi bi-eye me-2"></i>Anteprima Messaggio Regole
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="preview-content">
+                    <!-- Contenuto dell'anteprima -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Chiudi</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Export Modal -->
+<div class="modal fade" id="exportModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="bi bi-download me-2"></i>Esporta Configurazioni
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p>Seleziona le sezioni da esportare:</p>
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="export-banned-words" checked>
+                    <label class="form-check-label" for="export-banned-words">Parole Bannate</label>
+                </div>
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="export-whitelist" checked>
+                    <label class="form-check-label" for="export-whitelist">Whitelist</label>
+                </div>
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="export-admins" checked>
+                    <label class="form-check-label" for="export-admins">Amministratori</label>
+                </div>
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="export-night-mode" checked>
+                    <label class="form-check-label" for="export-night-mode">Night Mode</label>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annulla</button>
+                <button type="button" class="btn btn-primary" onclick="performExport()">
+                    <i class="bi bi-download me-1"></i>Esporta
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Hidden data for JavaScript -->
+<script id="config-data" type="application/json">
+{
+    "banned_words": {{ config.banned_words|tojson }},
+    "whitelist_words": {{ config.whitelist_words|tojson }},
+    "exempt_users": {{ config.exempt_users|tojson }},
+    "allowed_languages": {{ config.allowed_languages|tojson }},
+    "auto_approve_short_messages": {{ config.auto_approve_short_messages|tojson }},
+    "short_message_max_length": {{ config.short_message_max_length|default(4)|int }},
+    "first_messages_threshold": {{ config.first_messages_threshold|default(3)|int }},
+    "rules_command_enabled": {{ config.rules_command_enabled|tojson }},
+    "night_mode": {
+        "enabled": {{ config.night_mode.enabled|tojson }},
+        "start_hour": {{ config.night_mode.start_hour|tojson }},
+        "end_hour": {{ config.night_mode.end_hour|tojson }},
+        "grace_period_seconds": {{ config.night_mode.grace_period_seconds|default(15)|int }},
+        "night_mode_groups": {{ config.night_mode.night_mode_groups|tojson }}
+    },
+    "spam_detector": {
+        "time_window_hours": {{ config.spam_detector.time_window_hours|default(1)|float }},
+        "similarity_threshold": {{ config.spam_detector.similarity_threshold|default(0.85)|float }},
+        "min_groups": {{ config.spam_detector.min_groups|default(2)|int }}
+    },
+    "rules_message": {{ config.rules_message|tojson }}
+}
+</script>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// Check night mode status on page load
+document.addEventListener('DOMContentLoaded', function() {
+    checkNightModeStatus();
+});
+
+// Save banned words
+function saveBannedWords() {
+    const textarea = document.getElementById('banned-words-textarea');
+    const words = textarea.value.split('\n').map(w => w.trim()).filter(w => w.length > 0);
+    
+    saveConfigSection('banned_words', { banned_words: words }, 'Parole bannate salvate con successo!');
+}
+
+// Save whitelist words
+function saveWhitelistWords() {
+    const textarea = document.getElementById('whitelist-words-textarea');
+    const words = textarea.value.split('\n').map(w => w.trim()).filter(w => w.length > 0);
+    
+    saveConfigSection('whitelist_words', { whitelist_words: words }, 'Whitelist salvata con successo!');
+}
+
+// Save exempt users
+function saveExemptUsers() {
+    const textarea = document.getElementById('exempt-users-textarea');
+    const users = textarea.value.split('\n').map(u => {
+        u = u.trim();
+        // Convert to number if it's numeric, otherwise keep as string
+        return /^\d+$/.test(u) ? parseInt(u) : u;
+    }).filter(u => u);
+    
+    saveConfigSection('exempt_users', { exempt_users: users }, 'Amministratori salvati con successo!');
+}
+
+// Save general settings
+function saveGeneralSettings() {
+    const allowedLanguages = Array.from(document.getElementById('allowed-languages').selectedOptions).map(option => option.value);
+    const autoApproveShort = document.getElementById('auto-approve-short').checked;
+    const shortMessageLength = parseInt(document.getElementById('short-message-length').value);
+    const firstMessagesThreshold = parseInt(document.getElementById('first-messages-threshold').value);
+    const rulesCommandEnabled = document.getElementById('rules-command-enabled').checked;
+    
+    const settings = {
+        allowed_languages: allowedLanguages,
+        auto_approve_short_messages: autoApproveShort,
+        short_message_max_length: shortMessageLength,
+        first_messages_threshold: firstMessagesThreshold,
+        rules_command_enabled: rulesCommandEnabled
+    };
+    
+    saveConfigSection('general', settings, 'Impostazioni generali salvate con successo!');
+}
+
+// Save night mode settings
+function saveNightModeSettings() {
+    const enabled = document.getElementById('night-mode-enabled').checked;
+    const startHour = document.getElementById('night-start-hour').value;
+    const endHour = document.getElementById('night-end-hour').value;
+    const gracePeriod = parseInt(document.getElementById('grace-period').value);
+    const groupsText = document.getElementById('night-mode-groups').value;
+    const groups = groupsText.split('\n').map(g => parseInt(g.trim())).filter(g => !isNaN(g));
+    
+    const nightModeConfig = {
+        enabled: enabled,
+        start_hour: startHour,
+        end_hour: endHour,
+        grace_period_seconds: gracePeriod,
+        night_mode_groups: groups
+    };
+    
+    saveConfigSection('night_mode', nightModeConfig, 'Impostazioni Night Mode salvate con successo!');
+}
+
+// Save spam detector settings
+function saveSpamDetectorSettings() {
+    const timeWindow = parseFloat(document.getElementById('spam-time-window').value);
+    const similarity = parseFloat(document.getElementById('spam-similarity').value);
+    const minGroups = parseInt(document.getElementById('spam-min-groups').value);
+    
+    const spamConfig = {
+        time_window_hours: timeWindow,
+        similarity_threshold: similarity,
+        min_groups: minGroups
+    };
+    
+    saveConfigSection('spam_detector', spamConfig, 'Impostazioni Spam Detector salvate con successo!');
+}
+
+// Save rules message
+function saveRulesMessage() {
+    const message = document.getElementById('rules-message').value;
+    
+    saveConfigSection('rules', { rules_message: message }, 'Messaggio regole salvato con successo!');
+}
+
+// Generic function to save config section
+function saveConfigSection(section, values, successMessage) {
+    fetch('/api/config/update', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            section: section,
+            values: values
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showAlert(successMessage, 'success');
+            if (data.backup_created) {
+                console.log('Backup creato:', data.backup_created);
+            }
+        } else {
+            showAlert(`Errore durante il salvataggio: ${data.message}`, 'danger');
+            if (data.errors) {
+                data.errors.forEach(error => {
+                    showAlert(`Errore di validazione: ${error}`, 'warning');
+                });
+            }
+        }
+    })
+    .catch(error => {
+        console.error('Errore:', error);
+        showAlert('Errore di comunicazione con il server', 'danger');
+    });
+}
+
+// Save all configurations
+function saveAllConfigurations() {
+    const button = event.target;
+    const originalText = showLoading(button);
+    
+    // Save each section sequentially
+    Promise.resolve()
+        .then(() => new Promise(resolve => { saveBannedWords(); setTimeout(resolve, 500); }))
+        .then(() => new Promise(resolve => { saveWhitelistWords(); setTimeout(resolve, 500); }))
+        .then(() => new Promise(resolve => { saveExemptUsers(); setTimeout(resolve, 500); }))
+        .then(() => new Promise(resolve => { saveGeneralSettings(); setTimeout(resolve, 500); }))
+        .then(() => new Promise(resolve => { saveNightModeSettings(); setTimeout(resolve, 500); }))
+        .then(() => new Promise(resolve => { saveSpamDetectorSettings(); setTimeout(resolve, 500); }))
+        .then(() => new Promise(resolve => { saveRulesMessage(); setTimeout(resolve, 500); }))
+        .then(() => {
+            hideLoading(button, originalText);
+            showAlert('Tutte le configurazioni salvate con successo!', 'success');
+        })
+        .catch(error => {
+            hideLoading(button, originalText);
+            showAlert('Errore durante il salvataggio di alcune configurazioni', 'danger');
+        });
+}
+
+// Reload configurations
+function reloadConfigurations() {
+    if (confirm('Sei sicuro di voler ricaricare le configurazioni? Le modifiche non salvate andranno perse.')) {
+        window.location.reload();
+    }
+}
+
+// Check night mode status
+function checkNightModeStatus() {
+    fetch('/api/bot/status')
+        .then(response => response.json())
+        .then(data => {
+            const statusElement = document.getElementById('night-mode-status');
+            if (data.night_mode_active) {
+                statusElement.className = 'badge bg-primary';
+                statusElement.innerHTML = '<i class="bi bi-moon-fill me-1"></i>Attiva';
+            } else {
+                statusElement.className = 'badge bg-secondary';
+                statusElement.innerHTML = '<i class="bi bi-sun me-1"></i>Inattiva';
+            }
+        })
+        .catch(error => {
+            console.error('Errore verifica night mode:', error);
+            document.getElementById('night-mode-status').innerHTML = '<span class="badge bg-warning">Errore</span>';
+        });
+}
+
+// Test night mode activation
+function testNightModeNow() {
+    if (confirm('Vuoi attivare la Night Mode per test? Questo influenzerà tutti i gruppi configurati.')) {
+        showAlert('Funzione di test non ancora implementata', 'info');
+    }
+}
+
+// Preview rules message
+function previewRulesMessage() {
+    const message = document.getElementById('rules-message').value;
+    const modal = new bootstrap.Modal(document.getElementById('previewModal'));
+    
+    // Simple markdown-to-HTML conversion for preview
+    let htmlContent = message
+        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+        .replace(/__(.*?)__/g, '<em>$1</em>')
+        .replace(/\n/g, '<br>');
+    
+    document.getElementById('preview-content').innerHTML = htmlContent;
+    modal.show();
+}
+
+// Export configurations
+function exportConfigurations() {
+    const modal = new bootstrap.Modal(document.getElementById('exportModal'));
+    modal.show();
+}
+
+function performExport() {
+    const config = {
+        banned_words: document.getElementById('export-banned-words').checked ? 
+            document.getElementById('banned-words-textarea').value.split('\n').filter(w => w.trim()) : null,
+        whitelist_words: document.getElementById('export-whitelist').checked ? 
+            document.getElementById('whitelist-words-textarea').value.split('\n').filter(w => w.trim()) : null,
+        exempt_users: document.getElementById('export-admins').checked ? 
+            document.getElementById('exempt-users-textarea').value.split('\n').filter(u => u.trim()) : null,
+        night_mode: document.getElementById('export-night-mode').checked ? {
+            enabled: document.getElementById('night-mode-enabled').checked,
+            start_hour: document.getElementById('night-start-hour').value,
+            end_hour: document.getElementById('night-end-hour').value,
+            night_mode_groups: document.getElementById('night-mode-groups').value.split('\n').filter(g => g.trim())
+        } : null
+    };
+    
+    // Remove null values
+    Object.keys(config).forEach(key => config[key] === null && delete config[key]);
+    
+    // Create and download file
+    const dataStr = JSON.stringify(config, null, 2);
+    const dataBlob = new Blob([dataStr], { type: 'application/json' });
+    const url = URL.createObjectURL(dataBlob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `bot_config_${new Date().toISOString().split('T')[0]}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+    
+    const modal = bootstrap.Modal.getInstance(document.getElementById('exportModal'));
+    modal.hide();
+    
+    showAlert('Configurazioni esportate con successo!', 'success');
+}
+
+// Create backup
+function createBackup() {
+    fetch('/api/backup/create', {
+        method: 'POST'
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showAlert('Backup creato con successo!', 'success');
+        } else {
+            showAlert(`Errore durante la creazione del backup: ${data.message}`, 'danger');
+        }
+    })
+    .catch(error => {
+        console.error('Errore backup:', error);
+        showAlert('Errore di comunicazione durante la creazione del backup', 'danger');
+    });
+}
+
+// Reset functions
+function resetBannedWords() {
+    if (confirm('Sei sicuro di voler cancellare tutte le parole bannate?')) {
+        document.getElementById('banned-words-textarea').value = '';
+    }
+}
+
+function resetWhitelistWords() {
+    if (confirm('Sei sicuro di voler cancellare tutte le parole della whitelist?')) {
+        document.getElementById('whitelist-words-textarea').value = '';
+    }
+}
+
+function resetExemptUsers() {
+    if (confirm('Sei sicuro di voler cancellare tutti gli amministratori?')) {
+        document.getElementById('exempt-users-textarea').value = '';
+    }
+}
+
+// Add common banned words
+function addCommonBannedWords() {
+    const commonWords = [
+        'vendo panieri',
+        'offro panieri',
+        'panieri a pagamento',
+        'contattatemi per panieri',
+        'materiale didattico a pagamento',
+        'riassunti a pagamento',
+        'scorrimento lezioni',
+        'unitelematica',
+        'panieriunipegasomercatorum'
+    ];
+    
+    const textarea = document.getElementById('banned-words-textarea');
+    const currentWords = textarea.value.trim();
+    const newWords = currentWords ? currentWords + '\n' + commonWords.join('\n') : commonWords.join('\n');
+    textarea.value = newWords;
+    
+    showAlert('Parole comuni aggiunte alla lista bannate', 'info');
+}
+
+// Loading state functions
+function showLoading(button) {
+    const originalText = button.innerHTML;
+    button.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status"></span>Salvando...';
+    button.disabled = true;
+    return originalText;
+}
+
+function hideLoading(button, originalText) {
+    button.innerHTML = originalText;
+    button.disabled = false;
+}
+
+// Alert function
+function showAlert(message, type) {
+    console.log(`[${type.toUpperCase()}] ${message}`);
+    
+    // Create and show a Bootstrap alert
+    const alertContainer = document.createElement('div');
+    alertContainer.innerHTML = `
+        <div class="alert alert-${type} alert-dismissible fade show position-fixed" 
+             style="top: 20px; right: 20px; z-index: 9999; min-width: 300px;" role="alert">
+            <i class="bi bi-${type === 'success' ? 'check-circle' : type === 'danger' ? 'x-circle' : type === 'warning' ? 'exclamation-triangle' : 'info-circle'} me-2"></i>
+            ${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    `;
+    
+    document.body.appendChild(alertContainer);
+    
+    // Auto-remove after 5 seconds
+    setTimeout(() => {
+        const alert = alertContainer.querySelector('.alert');
+        if (alert) {
+            const bsAlert = new bootstrap.Alert(alert);
+            bsAlert.close();
+        }
+    }, 5000);
+}
