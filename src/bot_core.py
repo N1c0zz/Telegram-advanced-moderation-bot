@@ -110,11 +110,12 @@ class TelegramModerationBot:
         """Restituisce lo stato attuale del bot per la dashboard."""
         uptime = None
         if self._start_time:
+            # Calcola uptime in secondi dalla differenza
             uptime = int((datetime.now() - self._start_time).total_seconds())
             
         return {
             'is_running': self._is_running,
-            'start_time': self._start_time.isoformat() if self._start_time else None,
+            'start_time': self._start_time.isoformat() if self._start_time else None,  # IMPORTANTE: formato ISO
             'uptime_seconds': uptime,
             'night_mode_active': self.is_night_mode_period_active(-1),
             'scheduler_active': self.scheduler_active,

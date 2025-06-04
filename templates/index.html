@@ -29,7 +29,7 @@
                             </h6>
                             <p class="text-muted mb-2">
                                 <strong>Avviato:</strong> {{ formatDate(bot_status.start_time) if bot_status.start_time else 'N/A' }}<br>
-                                <strong>Uptime:</strong> <span id="uptime-display">{{ bot_status.uptime_seconds or 0 }}</span> secondi<br>
+                                <strong>Uptime:</strong> <span id="uptime-display" data-start-time="{{ bot_status.start_time or '' }}">{{ formatUptime(bot_status.uptime_seconds) if bot_status.uptime_seconds else '0s' }}</span><br>
                                 <strong>Night Mode:</strong> 
                                 {% if bot_status.night_mode_active %}
                                     <span class="badge bg-primary">Attiva</span>
@@ -283,28 +283,40 @@
 </div>
 {% endblock %}
 
-// 2. SOSTITUISCI tutto il blocco JavaScript nel template index.html con questo:
-
 {% block extra_js %}
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    // Update uptime display
+    // Update uptime display con calcolo corretto dal tempo di avvio
     function updateUptime() {
         const uptimeElement = document.getElementById('uptime-display');
         if (uptimeElement) {
-            let seconds = parseInt(uptimeElement.textContent.replace(/[^\d]/g, ''));
-            if (!isNaN(seconds)) {
-                seconds += 1;
-                uptimeElement.textContent = formatUptime(seconds);
+            const startTime = uptimeElement.getAttribute('data-start-time');
+            
+            if (startTime && startTime !== '') {
+                try {
+                    // Calcola uptime dalla differenza tra ora e start_time
+                    const startDate = new Date(startTime);
+                    const now = new Date();
+                    const uptimeSeconds = Math.floor((now - startDate) / 1000);
+                    
+                    // Formatta l'uptime
+                    const formatted = formatUptimeJS(uptimeSeconds);
+                    uptimeElement.textContent = formatted;
+                } catch (error) {
+                    console.error('Errore calcolo uptime:', error);
+                    uptimeElement.textContent = 'N/A';
+                }
             }
         }
     }
 
-    function formatUptime(seconds) {
-        const days = Math.floor(seconds / 86400);
-        const hours = Math.floor((seconds % 86400) / 3600);
-        const mins = Math.floor((seconds % 3600) / 60);
-        const secs = seconds % 60;
+    function formatUptimeJS(totalSeconds) {
+        if (totalSeconds < 0) totalSeconds = 0;
+        
+        const days = Math.floor(totalSeconds / 86400);
+        const hours = Math.floor((totalSeconds % 86400) / 3600);
+        const mins = Math.floor((totalSeconds % 3600) / 60);
+        const secs = totalSeconds % 60;
 
         if (days > 0) {
             return `${days}g ${hours}h ${mins}m`;
@@ -317,57 +329,85 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    // Check bot status and start timer if running
+    // Verifica se il bot è running e avvia il timer
     function checkBotStatusAndStartTimer() {
         fetch('/api/bot/status')
             .then(response => response.json())
             .then(data => {
-                if (data.is_running) {
+                const uptimeElement = document.getElementById('uptime-display');
+                
+                if (data.is_running && data.start_time) {
+                    // Aggiorna il data attribute con il tempo di avvio corretto
+                    uptimeElement.setAttribute('data-start-time', data.start_time);
+                    
+                    // Avvia il timer che aggiorna ogni secondo
                     setInterval(updateUptime, 1000);
+                    
+                    // Primo aggiornamento immediato
+                    updateUptime();
+                } else {
+                    // Bot non running
+                    uptimeElement.textContent = '0s';
+                    uptimeElement.removeAttribute('data-start-time');
                 }
             })
-            .catch(error => console.log('Status check failed:', error));
+            .catch(error => {
+                console.log('Status check failed:', error);
+                const uptimeElement = document.getElementById('uptime-display');
+                if (uptimeElement) {
+                    uptimeElement.textContent = 'N/A';
+                }
+            });
     }
     
+    // Avvia il controllo dello status
     checkBotStatusAndStartTimer();
 
     // Load recent activity
     function loadRecentActivity() {
-        fetch('/messages?limit=5')
-            .then(response => response.text())
-            .then(html => {
-                const parser = new DOMParser();
-                const doc = parser.parseFromString(html, 'text/html');
-                const table = doc.querySelector('table');
-                
+        fetch('/api/recent-activity')
+            .then(response => response.json())
+            .then(data => {
                 const loadingDiv = document.getElementById('recent-activity-loading');
                 const contentDiv = document.getElementById('recent-activity-content');
                 
-                if (table && table.rows.length > 1) {
-                    const previewTable = document.createElement('table');
-                    previewTable.className = 'table table-sm';
-                    previewTable.innerHTML = `
-                        <thead>
-                            <tr>
-                                <th>Timestamp</th>
-                                <th>Utente</th>
-                                <th>Messaggio</th>
-                                <th>Stato</th>
-                            </tr>
-                        </thead>
-                        <tbody></tbody>
+                if (data.success && data.messages && data.messages.length > 0) {
+                    // Crea tabella con i dati dell'API
+                    const tableHTML = `
+                        <div class="table-responsive">
+                            <table class="table table-sm">
+                                <thead>
+                                    <tr>
+                                        <th>Ora</th>
+                                        <th>Utente</th>
+                                        <th>Messaggio</th>
+                                        <th>Stato</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${data.messages.map(msg => `
+                                        <tr>
+                                            <td><small class="text-muted">${msg.timestamp}</small></td>
+                                            <td><strong>${msg.username}</strong></td>
+                                            <td>${msg.message}</td>
+                                            <td>${msg.status}</td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        </div>
                     `;
                     
-                    const tbody = previewTable.querySelector('tbody');
-                    for (let i = 1; i <= Math.min(6, table.rows.length - 1); i++) {
-                        const row = table.rows[i].cloneNode(true);
-                        tbody.appendChild(row);
-                    }
-                    
-                    contentDiv.innerHTML = '';
-                    contentDiv.appendChild(previewTable);
+                    contentDiv.innerHTML = tableHTML;
                 } else {
-                    contentDiv.innerHTML = '<p class="text-muted text-center">Nessuna attività recente</p>';
+                    contentDiv.innerHTML = `
+                        <div class="text-center py-4">
+                            <i class="bi bi-chat-dots text-muted" style="font-size: 2rem;"></i>
+                            <p class="text-muted mt-2 mb-0">
+                                ${data.error ? `Errore: ${data.error}` : 'Nessuna attività recente'}
+                            </p>
+                        </div>
+                    `;
                 }
                 
                 loadingDiv.style.display = 'none';
@@ -375,8 +415,19 @@ document.addEventListener('DOMContentLoaded', function() {
             })
             .catch(error => {
                 console.error('Errore caricamento attività:', error);
-                document.getElementById('recent-activity-loading').innerHTML = 
-                    '<p class="text-danger text-center">Errore caricamento attività</p>';
+                const loadingDiv = document.getElementById('recent-activity-loading');
+                const contentDiv = document.getElementById('recent-activity-content');
+                
+                contentDiv.innerHTML = `
+                    <div class="text-center py-4">
+                        <i class="bi bi-exclamation-triangle text-danger" style="font-size: 2rem;"></i>
+                        <p class="text-danger mt-2 mb-0">Errore caricamento attività recente</p>
+                        <small class="text-muted">Controlla che il bot sia attivo</small>
+                    </div>
+                `;
+                
+                loadingDiv.style.display = 'none';
+                contentDiv.style.display = 'block';
             });
     }
 

@@ -346,6 +346,64 @@ class DashboardApp:
             
             user_data = self.user_manager.search_user_messages(user_id)
             return jsonify(user_data)
+
+        @self.app.route('/api/recent-activity')
+        def api_recent_activity():
+            """API dedicata per attività recente sulla homepage."""
+            try:
+                if not self.bot or not self.bot.csv_manager:
+                    return jsonify({'error': 'Bot non attivo', 'messages': []})
+                
+                # Leggi gli ultimi 5 messaggi dal CSV
+                recent_messages = self.bot.csv_manager.read_csv_data("messages", limit=5)
+                
+                # Formatta i dati per la homepage
+                formatted_messages = []
+                for msg in recent_messages:
+                    # Converti il timestamp in formato più leggibile
+                    timestamp = msg.get('timestamp', '')
+                    try:
+                        from datetime import datetime
+                        if timestamp:
+                            dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+                            formatted_time = dt.strftime('%d/%m %H:%M')
+                        else:
+                            formatted_time = 'N/A'
+                    except:
+                        formatted_time = timestamp[:10] if timestamp else 'N/A'
+                    
+                    # Tronca il messaggio se troppo lungo
+                    message_text = msg.get('messaggio', '')
+                    if len(message_text) > 50:
+                        message_text = message_text[:50] + '...'
+                    
+                    # Determina lo stato
+                    approvato = msg.get('approvato', 'NO')
+                    if approvato == 'SI':
+                        status_badge = '<span class="badge bg-success">Approvato</span>'
+                    else:
+                        status_badge = '<span class="badge bg-danger">Eliminato</span>'
+                    
+                    formatted_messages.append({
+                        'timestamp': formatted_time,
+                        'username': msg.get('username', 'N/A'),
+                        'message': message_text,
+                        'status': status_badge,
+                        'group': msg.get('group_name', 'N/A')
+                    })
+                
+                return jsonify({
+                    'success': True,
+                    'messages': formatted_messages,
+                    'total': len(formatted_messages)
+                })
+                
+            except Exception as e:
+                self.logger.error(f"Errore API recent activity: {e}")
+                return jsonify({
+                    'error': str(e),
+                    'messages': []
+                })
         
         # --- Configurazioni ---
         @self.app.route('/config')
@@ -691,7 +749,7 @@ class DashboardApp:
             return {
                 'is_running': False,
                 'start_time': None,
-                'uptime_seconds': 0,
+                'uptime_seconds': 0,  # Sempre 0 se bot non attivo
                 'night_mode_active': False,
                 'scheduler_active': False,
                 'stats': {}
