@@ -257,10 +257,45 @@ class DashboardApp:
                 flash('Sistema non inizializzato', 'danger')
                 return redirect(url_for('index'))
             
-            recent_messages = self.bot.get_recent_messages(limit) if self.bot else []
+            # FIX: Riusa la stessa logica dell'API recent-activity che già funziona
+            recent_messages = []
+            
+            if self.bot and self.bot.csv_manager:
+                try:
+                    # Stessa logica di /api/recent-activity ma senza formattazione
+                    all_messages = self.bot.csv_manager.read_csv_data("messages")
+                    
+                    if all_messages:
+                        # Ordina per timestamp (più recente prima) - STESSA LOGICA DELLA HOMEPAGE
+                        def parse_timestamp(msg):
+                            timestamp = msg.get('timestamp', '')
+                            try:
+                                if timestamp:
+                                    if 'T' in timestamp:  # ISO format
+                                        return datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+                                    else:
+                                        return datetime.strptime(timestamp, '%Y-%m-%d %H:%M:%S')
+                                return datetime.min
+                            except:
+                                return datetime.min
+                        
+                        # Ordina dal più recente al più vecchio
+                        sorted_messages = sorted(all_messages, key=parse_timestamp, reverse=True)
+                        
+                        # Prendi solo i primi N (i più recenti)
+                        recent_messages = sorted_messages[:limit]
+                        
+                except Exception as e:
+                    self.logger.error(f"Errore recupero messaggi per /messages: {e}")
+                    recent_messages = []
+            
+            # FIX: Aggiungi bot_status per la sidebar
+            bot_status = self.get_bot_status()
+            
             return render_template('messages.html', 
-                                 messages=recent_messages, 
-                                 limit=limit)
+                                messages=recent_messages, 
+                                limit=limit,
+                                bot_status=bot_status)  # <-- AGGIUNTO
         
         @self.app.route('/messages/deleted')
         def deleted_messages():
@@ -271,25 +306,77 @@ class DashboardApp:
                 flash('Sistema non inizializzato', 'danger')
                 return redirect(url_for('index'))
             
-            deleted_msgs = self.bot.get_recent_deleted_messages(limit) if self.bot else []
+            # FIX: IDENTICA logica ai messaggi processati + filtro eliminati
+            deleted_msgs = []
+            
+            if self.bot and self.bot.csv_manager:
+                try:
+                    # STEP 1: Leggi TUTTI i messaggi (IDENTICO)
+                    all_messages = self.bot.csv_manager.read_csv_data("messages")
+                    
+                    if all_messages:
+                        # STEP 2: Filtra SOLO messaggi eliminati
+                        deleted_messages_list = [
+                            msg for msg in all_messages 
+                            if str(msg.get('approvato', '')).strip().upper() == 'NO'
+                        ]
+                        
+                        # STEP 3: Ordina per timestamp - IDENTICA logica ai messaggi processati
+                        def parse_timestamp(msg):
+                            timestamp = msg.get('timestamp', '')
+                            try:
+                                if timestamp:
+                                    if 'T' in timestamp:  # ISO format
+                                        return datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+                                    else:
+                                        return datetime.strptime(timestamp, '%Y-%m-%d %H:%M:%S')
+                                return datetime.min
+                            except:
+                                return datetime.min
+                        
+                        # STEP 4: Ordina dal più recente al più vecchio (IDENTICO)
+                        sorted_deleted = sorted(deleted_messages_list, key=parse_timestamp, reverse=True)
+                        
+                        # STEP 5: Prendi solo i primi N (IDENTICO)
+                        deleted_msgs = sorted_deleted[:limit]
+                        
+                        self.logger.info(f"Messaggi totali: {len(all_messages)}, eliminati: {len(deleted_messages_list)}, mostrati: {len(deleted_msgs)}")
+                        
+                except Exception as e:
+                    self.logger.error(f"Errore recupero messaggi eliminati: {e}", exc_info=True)
+                    deleted_msgs = []
+            
+            # Aggiungi bot_status per la sidebar (IDENTICO)
+            bot_status = self.get_bot_status()
+            
             return render_template('deleted_messages.html', 
-                                 messages=deleted_msgs, 
-                                 limit=limit)
+                                messages=deleted_msgs, 
+                                limit=limit,
+                                bot_status=bot_status)
         
         # --- Gestione Utenti ---
         @self.app.route('/users/banned')
         def banned_users():
             """Pagina utenti bannati."""
-            limit = request.args.get('limit', 30, type=int)
+            limit = request.args.get('limit', 50, type=int)  # Aumentato il default a 50
             
             if not self.user_manager:
                 flash('Sistema non inizializzato', 'danger')
                 return redirect(url_for('index'))
             
+            # Ottieni utenti bannati con ordinamento corretto (più recenti prima)
             banned_users_list = self.user_manager.get_banned_users_detailed(limit)
+            
+            # Aggiungi bot_status per la sidebar
+            bot_status = self.get_bot_status()
+            
+            # Log per debug
+            self.logger.info(f"Pagina banned_users: mostrati {len(banned_users_list)} utenti (limit: {limit})")
+            
             return render_template('banned_users.html', 
                                  banned_users=banned_users_list, 
-                                 limit=limit)
+                                 limit=limit,
+                                 bot_status=bot_status)
         
         @self.app.route('/api/user/ban', methods=['POST'])
         def api_ban_user():

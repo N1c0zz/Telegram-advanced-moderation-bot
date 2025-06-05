@@ -20,13 +20,37 @@ class UserManagementSystem:
         """
         Restituisce lista dettagliata degli utenti bannati per la dashboard.
         Include informazioni aggiuntive come data di ban, motivo, etc.
+        ORDINAMENTO FISSO: dal più recente al più vecchio.
         """
         try:
-            banned_data = self.csv_manager.read_csv_data("banned_users", limit=limit)
+            banned_data = self.csv_manager.read_csv_data("banned_users")
+            
+            if not banned_data:
+                return []
+            
+            # IMPORTANTE: Ordina per timestamp (più recente prima)
+            def parse_ban_timestamp(ban_record):
+                timestamp = ban_record.get('timestamp', '')
+                try:
+                    if timestamp:
+                        if 'T' in timestamp:  # ISO format
+                            return datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+                        else:  # Altri formati
+                            return datetime.strptime(timestamp, '%Y-%m-%d %H:%M:%S')
+                    return datetime.min  # Se non c'è timestamp, metti alla fine
+                except Exception as e:
+                    self.logger.warning(f"Errore parsing timestamp ban '{timestamp}': {e}")
+                    return datetime.min
+            
+            # Ordina dal più recente al più vecchio
+            sorted_banned = sorted(banned_data, key=parse_ban_timestamp, reverse=True)
+            
+            # Prendi solo i primi N (i più recenti)
+            recent_banned = sorted_banned[:limit]
             
             # Arricchisci i dati con informazioni aggiuntive
             enriched_data = []
-            for ban_record in banned_data:
+            for ban_record in recent_banned:
                 enriched_record = {
                     'user_id': ban_record.get('user_id', 'N/A'),
                     'timestamp': ban_record.get('timestamp', 'N/A'),
@@ -37,6 +61,7 @@ class UserManagementSystem:
                 }
                 enriched_data.append(enriched_record)
             
+            self.logger.info(f"Restituiti {len(enriched_data)} utenti bannati (ordinati dal più recente)")
             return enriched_data
             
         except Exception as e:

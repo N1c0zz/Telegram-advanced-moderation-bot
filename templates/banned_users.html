@@ -7,68 +7,6 @@
 
 {% block content %}
 <div class="row g-4">
-    <!-- Stats Card -->
-    <div class="col-12">
-        <div class="card">
-            <div class="card-body">
-                <div class="row text-center">
-                    <div class="col-md-3">
-                        <div class="d-flex align-items-center justify-content-center">
-                            <div class="display-6 text-danger me-3">
-                                <i class="bi bi-person-x"></i>
-                            </div>
-                            <div>
-                                <h4 class="mb-0">{{ banned_users|length }}</h4>
-                                <p class="text-muted mb-0">Attualmente Bannati</p>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-md-3">
-                        <div class="d-flex align-items-center justify-content-center">
-                            <div class="display-6 text-success me-3">
-                                <i class="bi bi-person-check"></i>
-                            </div>
-                            <div>
-                                <h4 class="mb-0" id="total-unbans">-</h4>
-                                <p class="text-muted mb-0">Totale Unban</p>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-md-3">
-                        <div class="d-flex align-items-center justify-content-center">
-                            <div class="display-6 text-warning me-3">
-                                <i class="bi bi-clock"></i>
-                            </div>
-                            <div>
-                                <h4 class="mb-0">
-                                    {% if banned_users %}
-                                        {{ (banned_users|map(attribute='days_since_ban')|sum / banned_users|length)|round(1) }}
-                                    {% else %}
-                                        0
-                                    {% endif %}
-                                </h4>
-                                <p class="text-muted mb-0">Giorni Medi</p>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-md-3">
-                        <div class="d-flex align-items-center justify-content-center">
-                            <div class="display-6 text-info me-3">
-                                <i class="bi bi-calendar-today"></i>
-                            </div>
-                            <div>
-                                <h4 class="mb-0">
-                                    {{ banned_users|selectattr('days_since_ban', 'lessthan', 7)|list|length }}
-                                </h4>
-                                <p class="text-muted mb-0">Ban Recenti (7gg)</p>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
     <!-- Actions Card -->
     <div class="col-12">
         <div class="card">
@@ -76,6 +14,7 @@
                 <h5 class="mb-0">
                     <i class="bi bi-tools me-2"></i>Azioni Rapide
                 </h5>
+                <span class="badge bg-danger">{{ banned_users|length }} utenti bannati</span>
             </div>
             <div class="card-body">
                 <div class="row g-3">
@@ -270,6 +209,31 @@
 <script>
 let currentUserId = null;
 
+// CONTROLLO STATUS PIU' FREQUENTE per questa pagina
+document.addEventListener('DOMContentLoaded', function() {
+    // Controllo immediato
+    updateBotStatusImmediate();
+    
+    // Controllo ogni 10 secondi invece di 30
+    setInterval(updateBotStatusImmediate, 10000);
+    
+    loadUnbanStatistics();
+});
+
+function updateBotStatusImmediate() {
+    fetch('/api/bot/status')
+        .then(response => response.json())
+        .then(data => {
+            const indicator = document.getElementById('bot-status-indicator');
+            if (indicator) {
+                indicator.innerHTML = data.is_running 
+                    ? '<span class="status-badge online">Bot Online</span>'
+                    : '<span class="status-badge offline">Bot Offline</span>';
+            }
+        })
+        .catch(error => console.error('Status check failed:', error));
+}
+
 // Quick ban user
 function quickBanUser() {
     const userIdInput = document.getElementById('quick-ban-user-id');
@@ -292,12 +256,15 @@ function quickBanUser() {
     modal.show();
 }
 
-// Confirm ban
+// Confirm ban - LOGICA CORRETTA
 document.getElementById('confirm-ban-btn').addEventListener('click', function() {
     const button = this;
     const originalText = showLoading(button);
     const reason = document.getElementById('ban-reason').value.trim() || 'Ban manuale da dashboard';
     
+    // Chiama l'API /api/user/ban che:
+    // 1. Salva nel CSV banned_users tramite csv_manager.ban_user()
+    // 2. Esegue ban fisico da tutti i gruppi Telegram
     fetch('/api/user/ban', {
         method: 'POST',
         headers: {
@@ -337,12 +304,16 @@ document.getElementById('confirm-ban-btn').addEventListener('click', function() 
     });
 });
 
-// Unban user
+// Unban user - LOGICA CORRETTA
 function unbanUser(userId) {
     if (!confirm(`Sei sicuro di voler sbannare l'utente ${userId}?`)) {
         return;
     }
     
+    // Chiama l'API /api/user/unban che:
+    // 1. Rimuove dal CSV banned_users tramite csv_manager.unban_user()
+    // 2. Salva storico in unban_history CSV
+    // 3. Esegue unban fisico da tutti i gruppi Telegram
     fetch('/api/user/unban', {
         method: 'POST',
         headers: {
@@ -355,7 +326,7 @@ function unbanUser(userId) {
     .then(response => response.json())
     .then(data => {
         if (data.success) {
-            showAlert(`Utente ${userId} sbannato con successo! (${data.groups_unbanned}/${data.total_groups} gruppi)`, 'success');
+            showAlert(`Utente ${userId} sbannato con successo! (${data.telegram_unban.groups_unbanned}/${data.telegram_unban.total_groups} gruppi)`, 'success');
             
             // Remove row from table
             const row = document.querySelector(`tr[data-user-id="${userId}"]`);
@@ -586,25 +557,9 @@ document.getElementById('quick-search-user-id').addEventListener('keypress', fun
     }
 });
 
-// Load unban statistics on page load
-document.addEventListener('DOMContentLoaded', function() {
-    loadUnbanStatistics();
-});
-
 function loadUnbanStatistics() {
-    // Carica statistiche unban se disponibili
-    // Questo sarà implementato quando aggiungeremo l'endpoint API
-    fetch('/api/analytics/unban-stats')
-        .then(response => response.json())
-        .then(data => {
-            if (data.total_unbans !== undefined) {
-                document.getElementById('total-unbans').textContent = formatNumber(data.total_unbans);
-            }
-        })
-        .catch(error => {
-            console.log('Statistiche unban non disponibili:', error);
-            document.getElementById('total-unbans').textContent = '0';
-        });
+    // Questo era il vecchio codice per le statistiche unban - ora rimosso
+    // perché abbiamo rimosso la barra delle statistiche
 }
 </script>
 {% endblock %}

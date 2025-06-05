@@ -3,7 +3,7 @@
 {% block title %}Analytics - Dashboard{% endblock %}
 
 {% block page_title %}Analytics & Statistiche{% endblock %}
-{% block page_description %}Analisi dettagliate delle attività di moderazione{% endblock %}
+{% block page_description %}Analisi delle attività di moderazione{% endblock %}
 
 {% block content %}
 <div class="row g-4">
@@ -69,27 +69,8 @@
         </div>
     </div>
 
-    <!-- Charts Section -->
-    <div class="col-lg-8">
-        <div class="card">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <h5 class="mb-0">
-                    <i class="bi bi-graph-up me-2"></i>Trend Messaggi
-                </h5>
-                <div class="btn-group btn-group-sm">
-                    <button class="btn btn-outline-primary active" onclick="loadChart('daily')">Giornaliero</button>
-                    <button class="btn btn-outline-primary" onclick="loadChart('weekly')">Settimanale</button>
-                    <button class="btn btn-outline-primary" onclick="loadChart('monthly')">Mensile</button>
-                </div>
-            </div>
-            <div class="card-body">
-                <canvas id="messagesChart" width="400" height="200"></canvas>
-            </div>
-        </div>
-    </div>
-
-    <!-- Top Rejection Reasons -->
-    <div class="col-lg-4">
+    <!-- Rejection Reasons Pie Chart -->
+    <div class="col-lg-6">
         <div class="card">
             <div class="card-header">
                 <h5 class="mb-0">
@@ -97,62 +78,7 @@
                 </h5>
             </div>
             <div class="card-body">
-                <canvas id="rejectionReasonsChart" width="300" height="300"></canvas>
-            </div>
-        </div>
-    </div>
-
-    <!-- Recent Activity Details -->
-    <div class="col-lg-6">
-        <div class="card">
-            <div class="card-header">
-                <h5 class="mb-0">
-                    <i class="bi bi-clock-history me-2"></i>Attività Recente (7 giorni)
-                </h5>
-            </div>
-            <div class="card-body">
-                <div class="row g-3">
-                    <div class="col-6">
-                        <div class="border rounded p-3 text-center">
-                            <h4 class="text-primary mb-1">{{ "{:,}".format(activity_summary.total_messages) }}</h4>
-                            <small class="text-muted">Messaggi Processati</small>
-                        </div>
-                    </div>
-                    <div class="col-6">
-                        <div class="border rounded p-3 text-center">
-                            <h4 class="text-danger mb-1">{{ "{:,}".format(activity_summary.rejected_messages) }}</h4>
-                            <small class="text-muted">Messaggi Eliminati</small>
-                        </div>
-                    </div>
-                    <div class="col-6">
-                        <div class="border rounded p-3 text-center">
-                            <h4 class="text-warning mb-1">{{ "{:,}".format(activity_summary.total_bans) }}</h4>
-                            <small class="text-muted">Nuovi Ban</small>
-                        </div>
-                    </div>
-                    <div class="col-6">
-                        <div class="border rounded p-3 text-center">
-                            <h4 class="text-success mb-1">{{ "%.1f"|format(activity_summary.approval_rate) }}%</h4>
-                            <small class="text-muted">Tasso Approvazione</small>
-                        </div>
-                    </div>
-                </div>
-                
-                <hr>
-                
-                <h6 class="mb-3">Top Utenti Attivi</h6>
-                {% if activity_summary.top_active_users %}
-                    {% for user_id, message_count in activity_summary.top_active_users[:5] %}
-                    <div class="d-flex justify-content-between align-items-center mb-2">
-                        <div>
-                            <strong>User {{ user_id }}</strong>
-                        </div>
-                        <span class="badge bg-primary">{{ "{:,}".format(message_count) }} msg</span>
-                    </div>
-                    {% endfor %}
-                {% else %}
-                    <p class="text-muted">Nessun dato disponibile</p>
-                {% endif %}
+                <canvas id="rejectionReasonsChart" width="400" height="300"></canvas>
             </div>
         </div>
     </div>
@@ -274,147 +200,6 @@
             </div>
         </div>
     </div>
-
-    <!-- Advanced Analytics -->
-    <div class="col-lg-6">
-        <div class="card">
-            <div class="card-header">
-                <h5 class="mb-0">
-                    <i class="bi bi-speedometer2 me-2"></i>Metriche Avanzate
-                </h5>
-            </div>
-            <div class="card-body">
-                <div class="row g-3">
-                    {% set approval_rate = 100 - insights.overall_rejection_rate %}
-                    {% set approval_rate_formatted = "%.1f"|format(approval_rate) %}
-                    <div class="col-12">
-                        <div class="border rounded p-3">
-                            <div class="row">
-                                <div class="col-8">
-                                    <h6 class="mb-1">Efficienza Moderazione</h6>
-                                    <small class="text-muted">Rapporto messaggi appropriati/totali</small>
-                                </div>
-                                <div class="col-4 text-end">
-                                    <h5 class="text-success mb-0">{{ approval_rate_formatted }}%</h5>
-                                </div>
-                            </div>
-                            <div class="progress mt-2" style="height: 8px;">
-                                <div class="progress-bar bg-success" role="progressbar" 
-                                     data-width="{{ approval_rate_formatted }}"
-                                     aria-valuenow="{{ approval_rate_formatted }}" 
-                                     aria-valuemin="0" 
-                                     aria-valuemax="100"></div>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <div class="col-12">
-                        <div class="border rounded p-3">
-                            <div class="row">
-                                <div class="col-8">
-                                    <h6 class="mb-1">Trend Ultimi 30 Giorni</h6>
-                                    <small class="text-muted">Tasso di rifiuto mensile</small>
-                                </div>
-                                <div class="col-4 text-end">
-                                    <h5 class="text-{% if insights.recent_30_days.rejection_rate > 15 %}danger{% elif insights.recent_30_days.rejection_rate > 8 %}warning{% else %}success{% endif %} mb-0">
-                                        {{ "%.1f"|format(insights.recent_30_days.rejection_rate) }}%
-                                    </h5>
-                                </div>
-                            </div>
-                            <small class="text-muted">
-                                {{ "{:,}".format(insights.recent_30_days.total_rejections) }} eliminati su {{ "{:,}".format(insights.recent_30_days.total_messages) }}
-                            </small>
-                        </div>
-                    </div>
-                    
-                    <div class="col-12">
-                        <div class="border rounded p-3">
-                            <h6 class="mb-2">Distribuzione Azioni</h6>
-                            <div class="d-flex justify-content-between mb-1">
-                                <small>Messaggi Approvati</small>
-                                <small>{{ approval_rate_formatted }}%</small>
-                            </div>
-                            <div class="d-flex justify-content-between mb-1">
-                                <small>Messaggi Eliminati</small>
-                                <small>{{ "%.1f"|format(insights.overall_rejection_rate) }}%</small>
-                            </div>
-                            <div class="d-flex justify-content-between">
-                                <small>Ban Applicati</small>
-                                <small>{{ "%.2f"|format((insights.total_bans / insights.total_messages_analyzed * 100) if insights.total_messages_analyzed > 0 else 0) }}%</small>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Export & Reports -->
-    <div class="col-lg-6">
-        <div class="card">
-            <div class="card-header">
-                <h5 class="mb-0">
-                    <i class="bi bi-file-earmark-bar-graph me-2"></i>Report & Export
-                </h5>
-            </div>
-            <div class="card-body">
-                <div class="d-grid gap-2">
-                    <button class="btn btn-primary" onclick="exportAnalyticsReport()">
-                        <i class="bi bi-file-earmark-pdf me-2"></i>Esporta Report Completo
-                    </button>
-                    <button class="btn btn-outline-info" onclick="exportChartData()">
-                        <i class="bi bi-table me-2"></i>Esporta Dati Grafici
-                    </button>
-                    <button class="btn btn-outline-success" onclick="generateTrendReport()">
-                        <i class="bi bi-graph-up-arrow me-2"></i>Report Trend Settimanale
-                    </button>
-                    <button class="btn btn-outline-warning" onclick="generateGroupReport()">
-                        <i class="bi bi-people me-2"></i>Report Performance Gruppi
-                    </button>
-                </div>
-                
-                <hr>
-                
-                <div class="row text-center">
-                    <div class="col-6">
-                        <div class="border rounded p-2">
-                            <small class="text-muted d-block">Ultimo Report</small>
-                            <strong id="last-report-date">Oggi</strong>
-                        </div>
-                    </div>
-                    <div class="col-6">
-                        <div class="border rounded p-2">
-                            <small class="text-muted d-block">Report Generati</small>
-                            <strong>24</strong>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- Chart Modal -->
-<div class="modal fade" id="chartModal" tabindex="-1">
-    <div class="modal-dialog modal-xl">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title">
-                    <i class="bi bi-graph-up me-2"></i>Grafico Dettagliato
-                </h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <canvas id="detailedChart" width="800" height="400"></canvas>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Chiudi</button>
-                <button type="button" class="btn btn-primary" onclick="exportChart()">
-                    <i class="bi bi-download me-1"></i>Esporta Grafico
-                </button>
-            </div>
-        </div>
-    </div>
 </div>
 
 <!-- Hidden data for JavaScript -->
@@ -436,13 +221,6 @@
         "rejection_rate": {{ insights.overall_rejection_rate|default(0)|float }},
         "total_bans": {{ insights.total_bans|default(0)|int }},
         "approval_rate": {{ (100 - insights.overall_rejection_rate|default(0))|float }}
-    },
-    "activity": {
-        "total_messages": {{ activity_summary.total_messages|default(0)|int }},
-        "rejected_messages": {{ activity_summary.rejected_messages|default(0)|int }},
-        "total_bans": {{ activity_summary.total_bans|default(0)|int }},
-        "approval_rate": {{ activity_summary.approval_rate|default(0)|float }},
-        "ban_rate": {{ activity_summary.ban_rate|default(0)|float }}
     }
 }
 </script>
@@ -450,14 +228,31 @@
 
 {% block extra_js %}
 <script>
-let messagesChart, rejectionReasonsChart;
-let currentTimeframe = 'daily';
+let rejectionReasonsChart;
 
 document.addEventListener('DOMContentLoaded', function() {
-    initializeCharts();
-    loadChart('daily');
+    initializeChart();
     initializeProgressBars();
+    
+    // FIX: Aggiorna status bot più frequentemente
+    updateBotStatusImmediate();
+    setInterval(updateBotStatusImmediate, 5000); // Ogni 5 secondi invece di 30
 });
+
+// FIX: Funzione per aggiornamento immediato status bot
+function updateBotStatusImmediate() {
+    fetch('/api/bot/status')
+        .then(response => response.json())
+        .then(data => {
+            const indicator = document.getElementById('bot-status-indicator');
+            if (indicator) {
+                indicator.innerHTML = data.is_running 
+                    ? '<span class="status-badge online">Bot Online</span>'
+                    : '<span class="status-badge offline">Bot Offline</span>';
+            }
+        })
+        .catch(error => console.error('Status check failed:', error));
+}
 
 function initializeProgressBars() {
     // Set width for all progress bars using data-width attribute
@@ -467,50 +262,11 @@ function initializeProgressBars() {
     });
 }
 
-function initializeCharts() {
+function initializeChart() {
     // Get data from hidden script tag
     const analyticsDataElement = document.getElementById('analytics-data');
     const analyticsData = JSON.parse(analyticsDataElement.textContent);
     
-    // Messages Trend Chart
-    const ctx = document.getElementById('messagesChart').getContext('2d');
-    messagesChart = new Chart(ctx, {
-        type: 'line',
-        data: {
-            labels: [],
-            datasets: [{
-                label: 'Messaggi Totali',
-                data: [],
-                borderColor: 'rgb(37, 99, 235)',
-                backgroundColor: 'rgba(37, 99, 235, 0.1)',
-                tension: 0.4
-            }, {
-                label: 'Messaggi Eliminati',
-                data: [],
-                borderColor: 'rgb(239, 68, 68)',
-                backgroundColor: 'rgba(239, 68, 68, 0.1)',
-                tension: 0.4
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-                legend: {
-                    position: 'top',
-                },
-                title: {
-                    display: false
-                }
-            },
-            scales: {
-                y: {
-                    beginAtZero: true
-                }
-            }
-        }
-    });
-
     // Rejection Reasons Pie Chart
     const ctx2 = document.getElementById('rejectionReasonsChart').getContext('2d');
     
@@ -529,7 +285,10 @@ function initializeCharts() {
                     'rgba(245, 158, 11, 0.8)',
                     'rgba(16, 185, 129, 0.8)',
                     'rgba(99, 102, 241, 0.8)',
-                    'rgba(139, 92, 246, 0.8)'
+                    'rgba(139, 92, 246, 0.8)',
+                    'rgba(236, 72, 153, 0.8)',
+                    'rgba(34, 197, 94, 0.8)',
+                    'rgba(168, 85, 247, 0.8)'
                 ],
                 borderWidth: 2,
                 borderColor: '#fff'
@@ -543,54 +302,24 @@ function initializeCharts() {
                     position: 'bottom',
                     labels: {
                         padding: 20,
-                        usePointStyle: true
+                        usePointStyle: true,
+                        maxWidth: 200
+                    }
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            const label = context.label || '';
+                            const value = context.parsed;
+                            const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                            const percentage = ((value / total) * 100).toFixed(1);
+                            return `${label}: ${value} (${percentage}%)`;
+                        }
                     }
                 }
             }
         }
     });
-}
-
-function loadChart(timeframe) {
-    currentTimeframe = timeframe;
-    
-    // Update active button
-    document.querySelectorAll('.btn-group .btn').forEach(btn => {
-        btn.classList.remove('active');
-    });
-    event.target.classList.add('active');
-    
-    // Fetch data for the selected timeframe
-    fetch(`/api/analytics/timeframe/${timeframe}`)
-        .then(response => response.json())
-        .then(data => {
-            updateMessagesChart(data);
-        })
-        .catch(error => {
-            console.error('Errore caricamento dati:', error);
-            showAlert('Errore durante il caricamento dei dati del grafico', 'danger');
-        });
-}
-
-function updateMessagesChart(data) {
-    const labels = data.map(item => {
-        const date = new Date(item.date);
-        if (currentTimeframe === 'daily') {
-            return date.toLocaleDateString('it-IT', { month: 'short', day: 'numeric' });
-        } else if (currentTimeframe === 'weekly') {
-            return `Settimana ${date.toLocaleDateString('it-IT', { month: 'short', day: 'numeric' })}`;
-        } else {
-            return date.toLocaleDateString('it-IT', { year: 'numeric', month: 'short' });
-        }
-    });
-    
-    const totalMessages = data.map(item => item.total);
-    const rejectedMessages = data.map(item => item.rejected);
-    
-    messagesChart.data.labels = labels;
-    messagesChart.data.datasets[0].data = totalMessages;
-    messagesChart.data.datasets[1].data = rejectedMessages;
-    messagesChart.update();
 }
 
 function refreshGroupStats() {
@@ -601,126 +330,31 @@ function refreshGroupStats() {
     }, 1500);
 }
 
-function exportAnalyticsReport() {
-    showAlert('Generazione report analytics in corso...', 'info');
-    
-    // Get data from analytics data element
-    const analyticsDataElement = document.getElementById('analytics-data');
-    const analyticsData = JSON.parse(analyticsDataElement.textContent);
-    
-    // Simulate report generation
-    setTimeout(() => {
-        const reportData = {
-            timestamp: new Date().toISOString(),
-            summary: {
-                total_messages: analyticsData.summary?.total_messages || 0,
-                total_rejections: analyticsData.summary?.total_rejections || 0,
-                rejection_rate: analyticsData.summary?.rejection_rate || 0,
-                total_bans: analyticsData.summary?.total_bans || 0
-            },
-            rejection_reasons: analyticsData.rejection_reasons || [],
-            generated_by: 'Dashboard Analytics Export'
-        };
-        
-        // Create and download JSON report
-        const dataStr = JSON.stringify(reportData, null, 2);
-        const dataBlob = new Blob([dataStr], { type: 'application/json' });
-        const url = URL.createObjectURL(dataBlob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `analytics_report_${new Date().toISOString().split('T')[0]}.json`;
-        link.click();
-        URL.revokeObjectURL(url);
-        
-        showAlert('Report analytics esportato con successo!', 'success');
-    }, 2000);
-}
-
-function exportChartData() {
-    showAlert('Export dati grafici in corso...', 'info');
-    
-    setTimeout(() => {
-        // Mock chart data export
-        const csvContent = "data:text/csv;charset=utf-8," 
-            + "Data,Messaggi Totali,Messaggi Eliminati\n"
-            + messagesChart.data.labels.map((label, i) => 
-                `${label},${messagesChart.data.datasets[0].data[i]},${messagesChart.data.datasets[1].data[i]}`
-            ).join('\n');
-        
-        const encodedUri = encodeURI(csvContent);
-        const link = document.createElement('a');
-        link.setAttribute('href', encodedUri);
-        link.setAttribute('download', `chart_data_${currentTimeframe}_${new Date().toISOString().split('T')[0]}.csv`);
-        link.click();
-        
-        showAlert('Dati grafici esportati in formato CSV!', 'success');
-    }, 1500);
-}
-
-function generateTrendReport() {
-    showAlert('Generazione report trend settimanale...', 'info');
-    
-    setTimeout(() => {
-        showAlert('Report trend settimanale generato!', 'success');
-    }, 3000);
-}
-
-function generateGroupReport() {
-    showAlert('Generazione report performance gruppi...', 'info');
-    
-    setTimeout(() => {
-        showAlert('Report performance gruppi generato!', 'success');
-    }, 2500);
-}
-
-function exportChart() {
-    const canvas = messagesChart.canvas;
-    const url = canvas.toDataURL('image/png');
-    const link = document.createElement('a');
-    link.download = `messages_chart_${currentTimeframe}_${new Date().toISOString().split('T')[0]}.png`;
-    link.href = url;
-    link.click();
-    
-    showAlert('Grafico esportato come immagine!', 'success');
-}
-
-// Click handlers for chart interaction
-function showDetailedChart(chartType) {
-    const modal = new bootstrap.Modal(document.getElementById('chartModal'));
-    modal.show();
-    
-    // Initialize detailed chart in modal
-    const ctx = document.getElementById('detailedChart').getContext('2d');
-    new Chart(ctx, {
-        type: chartType || 'line',
-        data: messagesChart.data,
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-                legend: {
-                    position: 'top'
-                },
-                title: {
-                    display: true,
-                    text: `Trend Messaggi - Vista Dettagliata (${currentTimeframe})`
-                }
-            }
-        }
-    });
-}
-
 // Utility function to show alerts
 function showAlert(message, type) {
-    // This function should be defined in your base template or main JS file
     console.log(`[${type.toUpperCase()}] ${message}`);
+    
+    // Create and show a Bootstrap alert
+    const alertContainer = document.createElement('div');
+    alertContainer.innerHTML = `
+        <div class="alert alert-${type} alert-dismissible fade show position-fixed" 
+             style="top: 20px; right: 20px; z-index: 9999; min-width: 300px;" role="alert">
+            <i class="bi bi-${type === 'success' ? 'check-circle' : type === 'danger' ? 'x-circle' : type === 'warning' ? 'exclamation-triangle' : 'info-circle'} me-2"></i>
+            ${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    `;
+    
+    document.body.appendChild(alertContainer);
+    
+    // Auto-remove after 5 seconds
+    setTimeout(() => {
+        const alert = alertContainer.querySelector('.alert');
+        if (alert) {
+            const bsAlert = new bootstrap.Alert(alert);
+            bsAlert.close();
+        }
+    }, 5000);
 }
-
-// Auto-refresh data every 5 minutes
-setInterval(() => {
-    if (document.visibilityState === 'visible') {
-        loadChart(currentTimeframe);
-    }
-}, 300000);
 </script>
 {% endblock %}
