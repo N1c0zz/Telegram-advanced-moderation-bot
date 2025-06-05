@@ -32,6 +32,7 @@ class TelegramModerationBot:
     logica di moderazione, e gestione dei comandi/messaggi Telegram.
     
     AGGIORNAMENTO: Rimosso Google Sheets, solo CSV. Aggiunto sistema di gestione utenti.
+    NUOVA FUNZIONALITÀ: Ban fisico automatico da tutti i gruppi quando un utente viene bannato logicamente.
     """
     def __init__(self):
         load_dotenv()
@@ -50,9 +51,6 @@ class TelegramModerationBot:
         if not os.getenv("OPENAI_API_KEY"):
             self.logger.warning("Chiave API OpenAI (OPENAI_API_KEY) non trovata. L'analisi AI sarà limitata.")
 
-        # RIMOZIONE: Non più Google Sheets
-        # self.sheets_manager = GoogleSheetsManager(self.logger, self.config_manager)
-
         # CSV Manager (ora sistema principale)
         self.csv_manager = CSVDataManager(self.logger, self.config_manager)
         
@@ -60,9 +58,6 @@ class TelegramModerationBot:
         self.user_manager = UserManagementSystem(self.logger, self.csv_manager, self.config_manager)
         
         self.moderation_logic = AdvancedModerationBotLogic(self.config_manager, self.logger)
-
-        # RIMOZIONE: Non più backup Google Sheets
-        # Non serve più SheetBackupManager dato che gestiamo solo CSV
 
         self.cross_group_spam_detector = CrossGroupSpamDetector(
             time_window_hours=self.config_manager.get_nested('spam_detector', 'time_window_hours', default=1),
@@ -278,6 +273,51 @@ class TelegramModerationBot:
         except Exception as e:
             self.logger.error(f"Errore unban utente da dashboard: {e}")
             return {"success": False, "message": f"Errore: {str(e)}"}
+
+    # --- NUOVA FUNZIONALITÀ: Ban fisico automatico ---
+    
+    async def _ban_user_automatically(self, user_id: int, username: str, reason: str, context: ContextTypes.DEFAULT_TYPE) -> bool:
+        """
+        NUOVA FUNZIONE: Esegue ban fisico automatico quando il bot decide di bannare un utente.
+        Viene chiamata automaticamente quando un utente viene bannato logicamente.
+        
+        Args:
+            user_id: ID dell'utente da bannare
+            username: Username dell'utente  
+            reason: Motivo del ban
+            context: Context Telegram per accedere al bot
+            
+        Returns:
+            bool: True se almeno un ban fisico è riuscito, False altrimenti
+        """
+        try:
+            target_groups = self.get_night_mode_groups()
+            
+            if not target_groups:
+                self.logger.warning(f"Nessun gruppo configurato per ban fisico automatico di {user_id}")
+                return False
+            
+            # Esegui ban fisico usando la stessa logica del comando /ban
+            results = await self._execute_multi_group_ban(context.bot, user_id, target_groups, reason)
+            
+            success_count = sum(results.values())
+            total_groups = len(target_groups)
+            
+            self.logger.info(
+                f"🔨 BAN FISICO AUTOMATICO completato per {username} ({user_id}): "
+                f"{success_count}/{total_groups} gruppi. Motivo: {reason}"
+            )
+            
+            # Log dettagliato sui risultati
+            for chat_id, success in results.items():
+                status = "✅ SUCCESS" if success else "❌ FAILED"
+                self.logger.debug(f"  Gruppo {chat_id}: {status}")
+            
+            return success_count > 0
+            
+        except Exception as e:
+            self.logger.error(f"Errore durante ban fisico automatico per {user_id}: {e}", exc_info=True)
+            return False
 
     # --- Lock Management (invariato) ---
     def _acquire_lock(self, operation_name: str, timeout: int = 60) -> bool:
@@ -549,7 +589,7 @@ class TelegramModerationBot:
         except ValueError:
             self.logger.error(f"Formato ora non valido per Night Mode ('{start_str}' o '{end_str}'). Job non pianificati.")
 
-    # --- Message Handlers (aggiornati per rimuovere Google Sheets) ---
+    # --- Message Handlers (aggiornati per includere ban fisico automatico) ---
     async def _handle_message_moderation(self, update: Update, context: ContextTypes.DEFAULT_TYPE, is_edited: bool = False):
         """Logica di moderazione centrale per messaggi nuovi o modificati."""
         message = update.effective_message
@@ -585,19 +625,13 @@ class TelegramModerationBot:
         exempt_users_list = self.config_manager.get('exempt_users', [])
         if user_id in exempt_users_list or username in exempt_users_list:
             self.logger.info(f"Messaggio {'modificato ' if is_edited else ''}da utente esente {username} ({user_id}) in {group_name} ({chat_id}).")
-            # RIMOZIONE: Non più Google Sheets
-            # self.sheets_manager.save_admin_message(message_text, user_id, username, chat_id, group_name)
             self.csv_manager.save_admin_message(message_text, user_id, username, chat_id, group_name)
             return
 
         # 2. UTENTI GIÀ BANNATI - CONTROLLO CRITICO DI SICUREZZA
-        # RIMOZIONE: Non più Google Sheets
-        # sheets_banned = self.sheets_manager.is_user_banned(user_id)
         csv_banned = self.csv_manager.is_user_banned(user_id)
         if csv_banned:
             self.logger.info(f"🚨 UTENTE BANNATO RILEVATO: {username} ({user_id}) ha tentato di scrivere: '{message_text}'")
-            # RIMOZIONE: Non più Google Sheets
-            # self.sheets_manager.save_message(...)
             self.csv_manager.save_message(
                 message_text, user_id, username, chat_id, group_name,
                 approvato=False, domanda=False, motivo_rifiuto=f"utente bannato (msg {'editato' if is_edited else 'nuovo'})"
@@ -636,8 +670,6 @@ class TelegramModerationBot:
         
         if auto_approve_short and len(message_text.strip()) <= short_max_length:
             self.logger.info(f"✅ Messaggio molto breve auto-approvato da {username}: '{message_text}' (lunghezza: {len(message_text.strip())})")
-            # RIMOZIONE: Non più Google Sheets
-            # self.sheets_manager.save_message(...)
             self.csv_manager.save_message(
                 message_text, user_id, username, chat_id, group_name,
                 approvato=True, domanda=False, motivo_rifiuto="auto-approvato (messaggio breve)"
@@ -647,8 +679,6 @@ class TelegramModerationBot:
         # 5. Whitelist critica
         if self.moderation_logic.contains_whitelist_word(message_text):
             self.logger.info(f"✅ Messaggio whitelist critica auto-approvato da {username}: '{message_text[:50]}...'")
-            # RIMOZIONE: Non più Google Sheets
-            # self.sheets_manager.save_message(...)
             self.csv_manager.save_message(
                 message_text, user_id, username, chat_id, group_name,
                 approvato=True, domanda=False, motivo_rifiuto="auto-approvato (whitelist critica)"
@@ -670,16 +700,24 @@ class TelegramModerationBot:
 
                 if is_inappropriate_content or is_direct_banned:
                     self.logger.warning(f"Contenuto SPAM CROSS-GRUPPO confermato come inappropriato. Ban e pulizia.")
-                    # RIMOZIONE: Non più Google Sheets
-                    # self.sheets_manager.ban_user(user_id, username, f"Spam cross-gruppo (similarità {similarity:.2f})")
-                    # self.sheets_manager.save_message(...)
-                    self.csv_manager.ban_user(user_id, username, f"Spam cross-gruppo (similarità {similarity:.2f})")
+                    
+                    # MODIFICA PRINCIPALE: Ban logico + ban fisico automatico
+                    ban_reason = f"Spam cross-gruppo (similarità {similarity:.2f})"
+                    self.csv_manager.ban_user(user_id, username, ban_reason)
                     self.csv_manager.save_message(
                         message_text, user_id, username, chat_id, group_name,
                         approvato=False, domanda=False,
-                        motivo_rifiuto=f"spam cross-gruppo inappropriato (similarità {similarity:.2f})"
+                        motivo_rifiuto=f"spam cross-gruppo inappropriato (similarità {similarity:.2f}) - Ban applicato"
                     )
                     self.bot_stats['users_banned_total'] += 1
+                    
+                    # NUOVO: Esegui ban fisico automatico
+                    ban_physical_success = await self._ban_user_automatically(user_id, username, ban_reason, context)
+                    if ban_physical_success:
+                        self.logger.info(f"✅ Ban fisico automatico completato per spam cross-gruppo: {username} ({user_id})")
+                    else:
+                        self.logger.warning(f"⚠️ Ban fisico automatico fallito per {username} ({user_id}), ma ban logico applicato")
+                    
                     try:
                         await context.bot.delete_message(chat_id, message_id)
                         self.bot_stats['messages_deleted_total'] += 1
@@ -701,24 +739,33 @@ class TelegramModerationBot:
             self.bot_stats['messages_deleted_by_direct_filter'] += 1
             self.moderation_logic.stats['direct_filter_matches'] +=1
             
+            ban_user_needed = False
+            ban_reason = ""
+            
             if is_edited:
                 self.logger.warning(f"Ban per {username} ({user_id}): messaggio editato inappropriato - possibile elusione moderazione.")
-                # RIMOZIONE: Non più Google Sheets
-                # self.sheets_manager.ban_user(user_id, username, "Messaggio editato inappropriato - elusione moderazione")
-                self.csv_manager.ban_user(user_id, username, "Messaggio editato inappropriato - elusione moderazione")
-                self.bot_stats['users_banned_total'] += 1
+                ban_reason = "Messaggio editato inappropriato - elusione moderazione"
+                ban_user_needed = True
                 motivo_finale_rifiuto += " - Ban applicato (edit)"
             elif total_user_messages <= self.config_manager.get('first_messages_threshold', 3):
                 self.logger.warning(f"Ban per {username} ({user_id}): primo messaggio ({total_user_messages}/{self.config_manager.get('first_messages_threshold', 3)}) inappropriato.")
-                # RIMOZIONE: Non più Google Sheets
-                # self.sheets_manager.ban_user(user_id, username, f"Primo messaggio inappropriato (msg #{total_user_messages})")
-                self.csv_manager.ban_user(user_id, username, f"Primo messaggio inappropriato (msg #{total_user_messages})")
-                self.bot_stats['users_banned_total'] += 1
+                ban_reason = f"Primo messaggio inappropriato (msg #{total_user_messages})"
+                ban_user_needed = True
                 motivo_finale_rifiuto += f" - Ban applicato (primo msg #{total_user_messages})"
 
+            # MODIFICA PRINCIPALE: Se necessario ban, esegui ban logico + fisico
+            if ban_user_needed:
+                self.csv_manager.ban_user(user_id, username, ban_reason)
+                self.bot_stats['users_banned_total'] += 1
+                
+                # NUOVO: Esegui ban fisico automatico
+                ban_physical_success = await self._ban_user_automatically(user_id, username, ban_reason, context)
+                if ban_physical_success:
+                    self.logger.info(f"✅ Ban fisico automatico completato per filtro diretto: {username} ({user_id})")
+                else:
+                    self.logger.warning(f"⚠️ Ban fisico automatico fallito per {username} ({user_id}), ma ban logico applicato")
+
             # Cancella e salva
-            # RIMOZIONE: Non più Google Sheets
-            # self.sheets_manager.save_message(...)
             self.csv_manager.save_message(
                 message_text, user_id, username, chat_id, group_name,
                 approvato=False, domanda=False, motivo_rifiuto=motivo_finale_rifiuto
@@ -746,16 +793,27 @@ class TelegramModerationBot:
             motivo_finale_rifiuto = f"lingua non consentita (msg {'editato' if is_edited else 'nuovo'})"
             self.bot_stats['messages_deleted_by_ai_filter'] += 1
             
+            ban_user_needed = False
+            ban_reason = ""
+            
             if is_edited:
                 self.logger.warning(f"Ban per {username} ({user_id}): messaggio editato in lingua non consentita.")
-                # RIMOZIONE: Non più Google Sheets
-                # self.sheets_manager.ban_user(user_id, username, "Edit in lingua non consentita")
-                self.csv_manager.ban_user(user_id, username, "Edit in lingua non consentita")
-                self.bot_stats['users_banned_total'] += 1
+                ban_reason = "Edit in lingua non consentita"
+                ban_user_needed = True
                 motivo_finale_rifiuto += " - Ban applicato (lingua edit)"
 
-            # RIMOZIONE: Non più Google Sheets
-            # self.sheets_manager.save_message(...)
+            # MODIFICA PRINCIPALE: Se necessario ban, esegui ban logico + fisico
+            if ban_user_needed:
+                self.csv_manager.ban_user(user_id, username, ban_reason)
+                self.bot_stats['users_banned_total'] += 1
+                
+                # NUOVO: Esegui ban fisico automatico
+                ban_physical_success = await self._ban_user_automatically(user_id, username, ban_reason, context)
+                if ban_physical_success:
+                    self.logger.info(f"✅ Ban fisico automatico completato per lingua: {username} ({user_id})")
+                else:
+                    self.logger.warning(f"⚠️ Ban fisico automatico fallito per {username} ({user_id}), ma ban logico applicato")
+
             self.csv_manager.save_message(
                 message_text, user_id, username, chat_id, group_name,
                 approvato=False, domanda=False, motivo_rifiuto=motivo_finale_rifiuto
@@ -775,8 +833,6 @@ class TelegramModerationBot:
         
         if is_short_message:
             self.logger.info(f"Messaggio breve/emoji da {username}: controlli sicurezza OK, skip analisi AI costosa.")
-            # RIMOZIONE: Non più Google Sheets
-            # self.sheets_manager.save_message(...)
             self.csv_manager.save_message(
                 message_text, user_id, username, chat_id, group_name,
                 approvato=True, domanda=False, motivo_rifiuto=""
@@ -788,6 +844,8 @@ class TelegramModerationBot:
         
         action_taken = False
         motivo_finale_rifiuto = ""
+        ban_user_needed = False
+        ban_reason = ""
         
         if is_inappropriate_ai:
             self.logger.info(f"Messaggio {'modificato ' if is_edited else ''}da {username} rilevato come inappropriato da AI.")
@@ -797,17 +855,13 @@ class TelegramModerationBot:
             
             if is_edited:
                 self.logger.warning(f"Ban per {username} ({user_id}): messaggio editato inappropriato (AI).")
-                # RIMOZIONE: Non più Google Sheets
-                # self.sheets_manager.ban_user(user_id, username, "Edit inappropriato (AI)")
-                self.csv_manager.ban_user(user_id, username, "Edit inappropriato (AI)")
-                self.bot_stats['users_banned_total'] += 1
+                ban_reason = "Edit inappropriato (AI)"
+                ban_user_needed = True
                 motivo_finale_rifiuto += " - Ban applicato (AI edit)"
             elif total_user_messages <= self.config_manager.get('first_messages_threshold', 3):
                 self.logger.warning(f"Ban per {username} ({user_id}): primo messaggio ({total_user_messages}/{self.config_manager.get('first_messages_threshold', 3)}) inappropriato (AI).")
-                # RIMOZIONE: Non più Google Sheets
-                # self.sheets_manager.ban_user(user_id, username, f"Primo messaggio inappropriato AI (msg #{total_user_messages})")
-                self.csv_manager.ban_user(user_id, username, f"Primo messaggio inappropriato AI (msg #{total_user_messages})")
-                self.bot_stats['users_banned_total'] += 1
+                ban_reason = f"Primo messaggio inappropriato AI (msg #{total_user_messages})"
+                ban_user_needed = True
                 motivo_finale_rifiuto += f" - Ban applicato (AI primo msg #{total_user_messages})"
 
         elif is_disallowed_lang_ai:
@@ -818,16 +872,24 @@ class TelegramModerationBot:
             
             if is_edited:
                 self.logger.warning(f"Ban per {username} ({user_id}): messaggio editato in lingua non consentita (AI).")
-                # RIMOZIONE: Non più Google Sheets
-                # self.sheets_manager.ban_user(user_id, username, "Edit in lingua non consentita (AI)")
-                self.csv_manager.ban_user(user_id, username, "Edit in lingua non consentita (AI)")
-                self.bot_stats['users_banned_total'] += 1
+                ban_reason = "Edit in lingua non consentita (AI)"
+                ban_user_needed = True
                 motivo_finale_rifiuto += " - Ban applicato (lingua AI edit)"
 
         # 11. Azione finale
         if action_taken:
-            # RIMOZIONE: Non più Google Sheets
-            # self.sheets_manager.save_message(...)
+            # MODIFICA PRINCIPALE: Se necessario ban, esegui ban logico + fisico
+            if ban_user_needed:
+                self.csv_manager.ban_user(user_id, username, ban_reason)
+                self.bot_stats['users_banned_total'] += 1
+                
+                # NUOVO: Esegui ban fisico automatico
+                ban_physical_success = await self._ban_user_automatically(user_id, username, ban_reason, context)
+                if ban_physical_success:
+                    self.logger.info(f"✅ Ban fisico automatico completato per AI: {username} ({user_id})")
+                else:
+                    self.logger.warning(f"⚠️ Ban fisico automatico fallito per {username} ({user_id}), ma ban logico applicato")
+            
             self.csv_manager.save_message(
                 message_text, user_id, username, chat_id, group_name,
                 approvato=False, domanda=is_question_ai, motivo_rifiuto=motivo_finale_rifiuto
@@ -848,8 +910,6 @@ class TelegramModerationBot:
         else:
             # Messaggio approvato
             self.logger.info(f"Messaggio {'modificato ' if is_edited else ''}da {username} approvato. Domanda: {is_question_ai}.")
-            # RIMOZIONE: Non più Google Sheets
-            # self.sheets_manager.save_message(...)
             self.csv_manager.save_message(
                 message_text, user_id, username, chat_id, group_name,
                 approvato=True, domanda=is_question_ai, motivo_rifiuto=""
@@ -876,8 +936,6 @@ class TelegramModerationBot:
             recent_messages_in_chat = self.message_cache.get_recent_messages(cid, user_id)
             for msg_id, msg_text in recent_messages_in_chat:
                 try:
-                    # RIMOZIONE: Non più Google Sheets
-                    # self.sheets_manager.save_message(...)
                     self.csv_manager.save_message(
                         msg_text or "[Testo non disponibile]", user_id, username, cid, group_name_for_sheets,
                         approvato=False, domanda=False,
@@ -908,7 +966,7 @@ class TelegramModerationBot:
         except Exception:
             pass
 
-    # --- Command Handlers (aggiornati per rimuovere Google Sheets) ---
+    # --- Command Handlers (invariati con logica esistente) ---
     async def _generic_admin_command_executor(self, update: Update, context: ContextTypes.DEFAULT_TYPE,
                                             command_name: str,
                                             action_coroutine_provider: callable,
@@ -1160,10 +1218,10 @@ class TelegramModerationBot:
                 await status_msg.edit_text("❌ Nessun gruppo configurato per il ban. Verifica la configurazione `night_mode_groups`.")
                 return
             
+            # MODIFICA: Usa la logica esistente per ban logico + fisico
             results = await self._execute_multi_group_ban(context.bot, target_user_id, target_groups, motivo)
             
-            # RIMOZIONE: Non più Google Sheets
-            # self.sheets_manager.ban_user(target_user_id, f"UserID_{target_user_id}", f"Ban manuale: {motivo}")
+            # Ban logico nel CSV
             self.csv_manager.ban_user(target_user_id, f"UserID_{target_user_id}", f"Ban manuale: {motivo}")
             self.bot_stats['users_banned_total'] += 1
             
@@ -1364,8 +1422,6 @@ class TelegramModerationBot:
         
         return False
 
-    # SOSTITUISCI il metodo start() in bot_core.py con questo:
-
     def start(self):
         """Avvia il bot con gestione silenziosa degli errori di polling."""
         self.logger.info(f"Avvio del Bot di Moderazione Telegram (PID: {os.getpid()})...")
@@ -1548,7 +1604,6 @@ class TelegramModerationBot:
                 self.logger.warning(f"Errore salvataggio contatori: {e}")
 
         self.logger.info("Bot arrestato.")
-
 
     def force_stop(self):
         """Forza l'arresto del bot anche se non risponde normalmente."""
