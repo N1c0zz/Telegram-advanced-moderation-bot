@@ -25,33 +25,79 @@ class DashboardApp:
     """
     
     def __init__(self):
+        """Inizializzazione con gestione sicura degli import."""
         self.app = Flask(__name__)
         self.app.secret_key = os.getenv("DASHBOARD_SECRET_KEY", "your-secret-key-change-this")
         
         # Configurazione Flask
         self.app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file upload
         
-        # Setup logging per dashboard
+        # Setup logging per dashboard PRIMA di tutto
         self.setup_dashboard_logging()
         
-        # NUOVO: Setup funzioni template PRIMA di setup_routes
+        # IMPORTANTE: Inizializza il logger SUBITO dopo setup_dashboard_logging
+        self.logger = logging.getLogger("Dashboard")
+        
+        # Setup funzioni template PRIMA di setup_routes
         self.setup_template_functions()
         
         # Bot instance (inizialmente None)
         self.bot: Optional[TelegramModerationBot] = None
         self.bot_thread: Optional[threading.Thread] = None
         
-        # Managers
+        # Managers - Inizializza con valori sicuri
         self.config_manager = ConfigManager()
         self.user_manager: Optional[UserManagementSystem] = None
         self.prompt_manager: Optional[SystemPromptManager] = None
         self.config_editor: Optional[ConfigurationManager] = None
         
+        # Prova a inizializzare i manager basic senza bot per la dashboard
+        try:
+            # Import sicuri dei manager
+            try:
+                from .user_management import ConfigurationManager, SystemPromptManager
+            except ImportError:
+                # Fallback per import senza package
+                from user_management import ConfigurationManager, SystemPromptManager
+            
+            # Ora self.logger è disponibile e gli import sono riusciti
+            self.config_editor = ConfigurationManager(self.config_manager, self.logger)
+            
+            # Per il prompt manager, se non c'è bot, crea un manager basic
+            self.prompt_manager = SystemPromptManager(self.logger, None)
+            
+            self.logger.info("Manager inizializzati con successo senza bot")
+            
+        except ImportError as e:
+            self.logger.error(f"Impossibile importare manager: {e}")
+            self.logger.warning("Dashboard funzionerà con funzionalità limitate")
+            # I manager rimarranno None e verranno gestiti nelle route
+        except Exception as e:
+            self.logger.warning(f"Impossibile inizializzare manager senza bot: {e}")
+            # I manager rimarranno None e verranno gestiti nelle route
+        
+        # Stats iniziali
+        self.bot_stats: Dict[str, int] = {
+            'total_messages_processed': 0,
+            'messages_deleted_total': 0,
+            'messages_deleted_by_direct_filter': 0,
+            'messages_deleted_by_ai_filter': 0,
+            'edited_messages_detected': 0,
+            'edited_messages_deleted': 0,
+            'users_banned_total': 0,
+            'users_unbanned_total': 0,
+        }
+        self.application: Optional[Application] = None
+        self._operation_locks: Dict[str, bool] = {}
+
+        # Stato di running per dashboard
+        self._is_running: bool = False
+        self._start_time: Optional[datetime] = None
+        
         # Setup routes
         self.setup_routes()
         
-        self.logger = logging.getLogger("Dashboard")
-        self.logger.info("Dashboard inizializzata")
+        self.logger.info("Dashboard inizializzata con gestione errori migliorata")
     
     def setup_dashboard_logging(self):
         """Configura logging separato per la dashboard."""
@@ -65,7 +111,7 @@ class DashboardApp:
             dashboard_logger.addHandler(handler)
 
     def setup_template_functions(self):
-        """Configura funzioni personalizzate per i template Jinja2."""
+        """Configura funzioni personalizzate per i template Jinja2 (versione sicura)."""
         
         @self.app.template_filter('format_number')
         def format_number_filter(value):
@@ -75,7 +121,7 @@ class DashboardApp:
                     return '0'
                 return f"{int(value):,}".replace(',', '.')
             except (ValueError, TypeError):
-                return str(value)
+                return str(value) if value is not None else '0'
         
         @self.app.template_global()
         def formatNumber(value):
@@ -85,7 +131,7 @@ class DashboardApp:
                     return '0'
                 return f"{int(value):,}".replace(',', '.')
             except (ValueError, TypeError):
-                return str(value)
+                return str(value) if value is not None else '0'
         
         @self.app.template_global()
         def formatPercentage(value, decimals=1):
@@ -95,23 +141,27 @@ class DashboardApp:
                     return '0%'
                 return f"{float(value):.{decimals}f}%"
             except (ValueError, TypeError):
-                return str(value)
+                return str(value) if value is not None else '0%'
         
         @self.app.template_global()
         def formatDateTime(timestamp_str, format='%d/%m/%Y %H:%M'):
             """Formatta una data/ora."""
             try:
+                if not timestamp_str:
+                    return 'N/A'
                 if isinstance(timestamp_str, str):
                     dt = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
                     return dt.strftime(format)
                 return str(timestamp_str)
             except:
-                return str(timestamp_str)
+                return str(timestamp_str) if timestamp_str else 'N/A'
         
         @self.app.template_global()
         def timeAgo(timestamp_str):
             """Calcola il tempo trascorso."""
             try:
+                if not timestamp_str:
+                    return 'N/A'
                 if isinstance(timestamp_str, str):
                     dt = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
                     dt = dt.replace(tzinfo=None)  # Remove timezone
@@ -129,7 +179,7 @@ class DashboardApp:
                         return "Ora"
                 return str(timestamp_str)
             except:
-                return str(timestamp_str)
+                return str(timestamp_str) if timestamp_str else 'N/A'
 
         @self.app.template_global()
         def formatDate(timestamp_str, format='%d/%m/%Y %H:%M'):
@@ -374,7 +424,7 @@ class DashboardApp:
             self.logger.info(f"Pagina banned_users: mostrati {len(banned_users_list)} utenti (limit: {limit})")
             
             return render_template('banned_users.html', 
-                                 banned_users=banned_users_list, 
+                                 banned_users=banned_users_list,
                                  limit=limit,
                                  bot_status=bot_status)
         
@@ -532,13 +582,60 @@ class DashboardApp:
         # --- Configurazioni ---
         @self.app.route('/config')
         def config():
-            """Pagina configurazioni."""
-            if not self.config_editor:
-                flash('Sistema non inizializzato', 'danger')
+            """Pagina configurazioni con fallback sicuro."""
+            try:
+                if not self.config_editor:
+                    # Fallback: carica configurazione base direttamente
+                    self.logger.warning("ConfigurationManager non disponibile, usando fallback")
+                    
+                    # Carica configurazione base
+                    try:
+                        basic_config = self.config_manager.config
+                    except:
+                        basic_config = {}
+                    
+                    # Crea configurazione sicura con defaults
+                    safe_config = {
+                        'banned_words': basic_config.get('banned_words', []),
+                        'whitelist_words': basic_config.get('whitelist_words', []),
+                        'exempt_users': basic_config.get('exempt_users', []),
+                        'allowed_languages': basic_config.get('allowed_languages', ['it']),
+                        'auto_approve_short_messages': basic_config.get('auto_approve_short_messages', True),
+                        'short_message_max_length': basic_config.get('short_message_max_length', 4),
+                        'first_messages_threshold': basic_config.get('first_messages_threshold', 3),
+                        'rules_command_enabled': basic_config.get('rules_command_enabled', True),
+                        'rules_message': basic_config.get('rules_message', ''),
+                        'night_mode': {
+                            'enabled': basic_config.get('night_mode', {}).get('enabled', True),
+                            'start_hour': basic_config.get('night_mode', {}).get('start_hour', '23:00'),
+                            'end_hour': basic_config.get('night_mode', {}).get('end_hour', '07:00'),
+                            'night_mode_groups': basic_config.get('night_mode', {}).get('night_mode_groups', []),
+                            'grace_period_seconds': basic_config.get('night_mode', {}).get('grace_period_seconds', 15)
+                        },
+                        'spam_detector': {
+                            'time_window_hours': basic_config.get('spam_detector', {}).get('time_window_hours', 1),
+                            'similarity_threshold': basic_config.get('spam_detector', {}).get('similarity_threshold', 0.85),
+                            'min_groups': basic_config.get('spam_detector', {}).get('min_groups', 2)
+                        }
+                    }
+                    
+                    bot_status = self.get_bot_status()
+                    return render_template('config.html', 
+                                        config=safe_config,
+                                        bot_status=bot_status)
+                
+                # Uso normale del ConfigurationManager
+                current_config = self.config_editor.get_editable_config()
+                bot_status = self.get_bot_status()
+                
+                return render_template('config.html', 
+                                    config=current_config,
+                                    bot_status=bot_status)
+                                    
+            except Exception as e:
+                self.logger.error(f"Errore nella route /config: {e}", exc_info=True)
+                flash(f'Errore nel caricamento delle configurazioni: {str(e)}', 'danger')
                 return redirect(url_for('index'))
-            
-            current_config = self.config_editor.get_editable_config()
-            return render_template('config.html', config=current_config)
         
         @self.app.route('/api/config/update', methods=['POST'])
         def api_config_update():
@@ -577,17 +674,46 @@ class DashboardApp:
         # --- System Prompt ---
         @self.app.route('/prompt')
         def system_prompt():
-            """Pagina gestione system prompt."""
-            if not self.prompt_manager:
-                flash('Sistema non inizializzato', 'danger')
+            """Pagina gestione system prompt con fallback sicuro."""
+            try:
+                if not self.prompt_manager:
+                    self.logger.warning("SystemPromptManager non disponibile, usando fallback")
+                    # Fallback: prompt di default
+                    default_prompt = """Sei un moderatore esperto di un gruppo Telegram universitario italiano. Analizza ogni messaggio con attenzione e rispondi SOLO con questo formato:
+                                        INAPPROPRIATO: SI/NO
+                                        DOMANDA: SI/NO
+                                        LINGUA: CONSENTITA/NON CONSENTITA
+
+                                        ⚠️ PRIORITÀ ASSOLUTA: EVITARE FALSI POSITIVI! CONSIDERA APPROPRIATO QUALSIASI MESSAGGIO CHE NON È CHIARAMENTE PROBLEMATICO."""
+                    
+                    prompt_history = [{
+                        'version': 1,
+                        'timestamp': datetime.now().isoformat(),
+                        'prompt_preview': 'Prompt di default del sistema',
+                        'length': len(default_prompt),
+                        'is_current': True
+                    }]
+                    
+                    bot_status = self.get_bot_status()
+                    return render_template('system_prompt.html', 
+                                        current_prompt=default_prompt,
+                                        prompt_history=prompt_history,
+                                        bot_status=bot_status)
+                
+                # Uso normale del SystemPromptManager
+                current_prompt = self.prompt_manager.get_current_prompt()
+                prompt_history = self.prompt_manager.get_prompt_history()
+                bot_status = self.get_bot_status()
+                
+                return render_template('system_prompt.html', 
+                                    current_prompt=current_prompt,
+                                    prompt_history=prompt_history,
+                                    bot_status=bot_status)
+                                    
+            except Exception as e:
+                self.logger.error(f"Errore nella route /prompt: {e}", exc_info=True)
+                flash(f'Errore nel caricamento del system prompt: {str(e)}', 'danger')
                 return redirect(url_for('index'))
-            
-            current_prompt = self.prompt_manager.get_current_prompt()
-            prompt_history = self.prompt_manager.get_prompt_history()
-            
-            return render_template('system_prompt.html', 
-                                 current_prompt=current_prompt,
-                                 prompt_history=prompt_history)
         
         @self.app.route('/api/prompt/update', methods=['POST'])
         def api_prompt_update():
@@ -624,12 +750,31 @@ class DashboardApp:
         # --- Backup e Download ---
         @self.app.route('/backup')
         def backup_page():
-            """Pagina backup e download."""
-            csv_stats = {}
-            if self.bot and self.bot.csv_manager:
-                csv_stats = self.bot.csv_manager.get_csv_stats()
-            
-            return render_template('backup.html', csv_stats=csv_stats)
+            """Pagina backup e download con fallback sicuro."""
+            try:
+                csv_stats = {}
+                if self.bot and self.bot.csv_manager:
+                    csv_stats = self.bot.csv_manager.get_csv_stats()
+                else:
+                    # Fallback: stats vuote
+                    csv_stats = {
+                        'messages': 0,
+                        'admin': 0,
+                        'banned_users': 0,
+                        'unban_history': 0,
+                        'csv_disabled': True
+                    }
+                
+                bot_status = self.get_bot_status()
+                
+                return render_template('backup.html', 
+                                    csv_stats=csv_stats,
+                                    bot_status=bot_status)
+                                    
+            except Exception as e:
+                self.logger.error(f"Errore nella route /backup: {e}", exc_info=True)
+                flash(f'Errore nel caricamento della pagina backup: {str(e)}', 'danger')
+                return redirect(url_for('index'))
         
         @self.app.route('/api/backup/create', methods=['POST'])
         def api_create_backup():
@@ -720,15 +865,20 @@ class DashboardApp:
         # --- Error Handlers ---
         @self.app.errorhandler(404)
         def not_found(error):
+            bot_status = self.get_bot_status()
             return render_template('error.html', 
-                                 error_code=404, 
-                                 error_message="Pagina non trovata"), 404
+                                error_code=404, 
+                                error_message="Pagina non trovata",
+                                bot_status=bot_status), 404
         
         @self.app.errorhandler(500)
         def internal_error(error):
+            bot_status = self.get_bot_status()
+            self.logger.error(f"Errore 500: {error}", exc_info=True)
             return render_template('error.html', 
-                                 error_code=500, 
-                                 error_message="Errore interno del server"), 500
+                                error_code=500, 
+                                error_message="Errore interno del server",
+                                bot_status=bot_status), 500
     
     # --- Metodi di gestione Bot ---
     
@@ -852,9 +1002,16 @@ class DashboardApp:
     # --- Metodi helper ---
 
     def get_bot_debug_info(self) -> Dict[str, Any]:
-        """Restituisce informazioni di debug sul bot."""
+        """Restituisce informazioni di debug sul bot (versione corretta)."""
         if not self.bot:
-            return {'bot_exists': False, 'thread_alive': bool(self.bot_thread and self.bot_thread.is_alive())}
+            return {
+                'bot_exists': False, 
+                'thread_alive': bool(self.bot_thread and self.bot_thread.is_alive()),
+                'is_running': False,
+                'has_application': False,
+                'application_running': False,
+                'scheduler_active': False
+            }
         
         return {
             'bot_exists': True,

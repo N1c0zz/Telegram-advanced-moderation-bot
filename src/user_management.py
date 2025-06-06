@@ -565,18 +565,19 @@ class SystemPromptManager:
     
     def __init__(self, logger: logging.Logger, moderation_logic):
         self.logger = logger
-        self.moderation_logic = moderation_logic
+        self.moderation_logic = moderation_logic  # Può essere None
         self.prompt_file = "config/system_prompt.txt"
         
         # Crea directory se non esiste
         os.makedirs(os.path.dirname(self.prompt_file), exist_ok=True)
-    
+
     def get_current_prompt(self) -> str:
-        """Restituisce il prompt di sistema attuale."""
+        """Restituisce il prompt di sistema attuale (versione sicura)."""
         try:
             if os.path.exists(self.prompt_file):
                 with open(self.prompt_file, 'r', encoding='utf-8') as f:
-                    return f.read().strip()
+                    content = f.read().strip()
+                    return content if content else self._get_default_prompt()
             else:
                 # Restituisce il prompt hardcoded da moderation_rules.py
                 return self._get_default_prompt()
@@ -609,19 +610,28 @@ class SystemPromptManager:
     
     def get_prompt_history(self, limit: int = 10) -> List[Dict[str, Any]]:
         """
-        Restituisce la cronologia delle modifiche al prompt.
+        Restituisce la cronologia delle modifiche al prompt (versione sicura).
         TODO: Implementare versioning del prompt.
         """
-        # Per ora restituisce solo il prompt attuale
-        current_prompt = self.get_current_prompt()
-        
-        return [{
-            'version': 1,
-            'timestamp': datetime.now().isoformat(),
-            'prompt_preview': current_prompt[:200] + '...' if len(current_prompt) > 200 else current_prompt,
-            'length': len(current_prompt),
-            'is_current': True
-        }]
+        try:
+            current_prompt = self.get_current_prompt()
+            
+            return [{
+                'version': 1,
+                'timestamp': datetime.now().isoformat(),
+                'prompt_preview': current_prompt[:200] + '...' if len(current_prompt) > 200 else current_prompt,
+                'length': len(current_prompt),
+                'is_current': True
+            }]
+        except Exception as e:
+            self.logger.error(f"Errore recupero cronologia prompt: {e}")
+            return [{
+                'version': 1,
+                'timestamp': datetime.now().isoformat(),
+                'prompt_preview': 'Errore nel caricamento del prompt',
+                'length': 0,
+                'is_current': True
+            }]
     
     def reset_to_default(self) -> bool:
         """Reset del prompt alle impostazioni predefinite."""
@@ -655,10 +665,15 @@ class ConfigurationManager:
         self.logger = logger
     
     def get_editable_config(self) -> Dict[str, Any]:
-        """Restituisce le configurazioni modificabili dalla dashboard."""
-        config = self.config_manager.config
+        """Restituisce le configurazioni modificabili dalla dashboard (versione sicura)."""
+        try:
+            config = self.config_manager.config
+        except Exception as e:
+            self.logger.error(f"Errore accesso config: {e}")
+            config = {}
         
-        return {
+        # Assicurati che tutte le chiavi abbiano valori di default sicuri
+        safe_config = {
             'banned_words': config.get('banned_words', []),
             'whitelist_words': config.get('whitelist_words', []),
             'exempt_users': config.get('exempt_users', []),
@@ -666,21 +681,45 @@ class ConfigurationManager:
             'auto_approve_short_messages': config.get('auto_approve_short_messages', True),
             'short_message_max_length': config.get('short_message_max_length', 4),
             'first_messages_threshold': config.get('first_messages_threshold', 3),
-            'night_mode': {
-                'enabled': config.get('night_mode', {}).get('enabled', True),
-                'start_hour': config.get('night_mode', {}).get('start_hour', '23:00'),
-                'end_hour': config.get('night_mode', {}).get('end_hour', '07:00'),
-                'night_mode_groups': config.get('night_mode', {}).get('night_mode_groups', []),
-                'grace_period_seconds': config.get('night_mode', {}).get('grace_period_seconds', 15)
-            },
-            'rules_message': config.get('rules_message', ''),
             'rules_command_enabled': config.get('rules_command_enabled', True),
-            'spam_detector': {
-                'time_window_hours': config.get('spam_detector', {}).get('time_window_hours', 1),
-                'similarity_threshold': config.get('spam_detector', {}).get('similarity_threshold', 0.85),
-                'min_groups': config.get('spam_detector', {}).get('min_groups', 2)
-            }
+            'rules_message': config.get('rules_message', ''),
         }
+        
+        # Night mode con controlli sicuri
+        night_mode_config = config.get('night_mode', {})
+        if isinstance(night_mode_config, dict):
+            safe_config['night_mode'] = {
+                'enabled': night_mode_config.get('enabled', True),
+                'start_hour': night_mode_config.get('start_hour', '23:00'),
+                'end_hour': night_mode_config.get('end_hour', '07:00'),
+                'night_mode_groups': night_mode_config.get('night_mode_groups', []),
+                'grace_period_seconds': night_mode_config.get('grace_period_seconds', 15)
+            }
+        else:
+            safe_config['night_mode'] = {
+                'enabled': True,
+                'start_hour': '23:00',
+                'end_hour': '07:00',
+                'night_mode_groups': [],
+                'grace_period_seconds': 15
+            }
+        
+        # Spam detector con controlli sicuri
+        spam_config = config.get('spam_detector', {})
+        if isinstance(spam_config, dict):
+            safe_config['spam_detector'] = {
+                'time_window_hours': spam_config.get('time_window_hours', 1),
+                'similarity_threshold': spam_config.get('similarity_threshold', 0.85),
+                'min_groups': spam_config.get('min_groups', 2)
+            }
+        else:
+            safe_config['spam_detector'] = {
+                'time_window_hours': 1,
+                'similarity_threshold': 0.85,
+                'min_groups': 2
+            }
+        
+        return safe_config
     
     def update_config_section(self, section: str, new_values: Dict[str, Any]) -> Tuple[bool, str]:
         """

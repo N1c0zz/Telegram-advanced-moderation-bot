@@ -198,7 +198,7 @@
                     <i class="bi bi-moon me-2"></i>Modalità Notturna
                 </h5>
                 <div class="form-check form-switch">
-                    <input class="form-check-input" type="checkbox" id="night-mode-enabled" {% if config.night_mode.enabled %}checked{% endif %}>
+                    <input class="form-check-input" type="checkbox" id="night-mode-enabled" {% if config.night_mode and config.night_mode.enabled %}checked{% endif %}>
                     <label class="form-check-label" for="night-mode-enabled">Abilitata</label>
                 </div>
             </div>
@@ -206,17 +206,17 @@
                 <div class="row g-3">
                     <div class="col-md-3">
                         <label for="night-start-hour" class="form-label">Ora Inizio:</label>
-                        <input type="time" class="form-control" id="night-start-hour" value="{{ config.night_mode.start_hour }}">
+                        <input type="time" class="form-control" id="night-start-hour" value="{{ config.night_mode.start_hour if config.night_mode else '23:00' }}">
                     </div>
                     
                     <div class="col-md-3">
                         <label for="night-end-hour" class="form-label">Ora Fine:</label>
-                        <input type="time" class="form-control" id="night-end-hour" value="{{ config.night_mode.end_hour }}">
+                        <input type="time" class="form-control" id="night-end-hour" value="{{ config.night_mode.end_hour if config.night_mode else '07:00' }}">
                     </div>
                     
                     <div class="col-md-3">
                         <label for="grace-period" class="form-label">Periodo di Grazia (secondi):</label>
-                        <input type="number" class="form-control" id="grace-period" value="{{ config.night_mode.grace_period_seconds }}" min="0" max="300">
+                        <input type="number" class="form-control" id="grace-period" value="{{ config.night_mode.grace_period_seconds if config.night_mode else 15 }}" min="0" max="300">
                     </div>
                     
                     <div class="col-md-3">
@@ -230,8 +230,8 @@
                 <div class="row mt-3">
                     <div class="col-12">
                         <label for="night-mode-groups" class="form-label">Gruppi Night Mode (Chat ID, uno per riga):</label>
-                        <textarea class="form-control" id="night-mode-groups" rows="4" placeholder="Inserisci i Chat ID dei gruppi, uno per riga">{% for group_id in config.night_mode.night_mode_groups %}{{ group_id }}
-{% endfor %}</textarea>
+                        <textarea class="form-control" id="night-mode-groups" rows="4" placeholder="Inserisci i Chat ID dei gruppi, uno per riga">{% if config.night_mode and config.night_mode.night_mode_groups %}{% for group_id in config.night_mode.night_mode_groups %}{{ group_id }}
+{% endfor %}{% endif %}</textarea>
                         <small class="text-muted">Solo i gruppi in questa lista saranno soggetti alla modalità notturna</small>
                     </div>
                 </div>
@@ -265,17 +265,17 @@
                 <div class="row g-3">
                     <div class="col-md-6">
                         <label for="spam-time-window" class="form-label">Finestra Temporale (ore):</label>
-                        <input type="number" class="form-control" id="spam-time-window" value="{{ config.spam_detector.time_window_hours }}" min="0.1" max="24" step="0.1">
+                        <input type="number" class="form-control" id="spam-time-window" value="{{ config.spam_detector.time_window_hours if config.spam_detector else 1 }}" min="0.1" max="24" step="0.1">
                     </div>
                     
                     <div class="col-md-6">
                         <label for="spam-similarity" class="form-label">Soglia Similarità:</label>
-                        <input type="number" class="form-control" id="spam-similarity" value="{{ config.spam_detector.similarity_threshold }}" min="0.1" max="1.0" step="0.01">
+                        <input type="number" class="form-control" id="spam-similarity" value="{{ config.spam_detector.similarity_threshold if config.spam_detector else 0.85 }}" min="0.1" max="1.0" step="0.01">
                     </div>
                     
                     <div class="col-md-6">
                         <label for="spam-min-groups" class="form-label">Gruppi Minimi:</label>
-                        <input type="number" class="form-control" id="spam-min-groups" value="{{ config.spam_detector.min_groups }}" min="2" max="10">
+                        <input type="number" class="form-control" id="spam-min-groups" value="{{ config.spam_detector.min_groups if config.spam_detector else 2 }}" min="2" max="10">
                     </div>
                     
                     <div class="col-md-6">
@@ -308,7 +308,7 @@
             <div class="card-body">
                 <div class="mb-3">
                     <label for="rules-message" class="form-label">Testo del messaggio /rules:</label>
-                    <textarea class="form-control" id="rules-message" rows="8" placeholder="Inserisci il messaggio che verrà inviato con il comando /rules">{{ config.rules_message }}</textarea>
+                    <textarea class="form-control" id="rules-message" rows="8" placeholder="Inserisci il messaggio che verrà inviato con il comando /rules">{{ config.rules_message or '' }}</textarea>
                     <small class="text-muted">Supporta formattazione Markdown</small>
                 </div>
                 
@@ -389,27 +389,27 @@
 <!-- Hidden data for JavaScript -->
 <script id="config-data" type="application/json">
 {
-    "banned_words": {{ config.banned_words|tojson }},
-    "whitelist_words": {{ config.whitelist_words|tojson }},
-    "exempt_users": {{ config.exempt_users|tojson }},
-    "allowed_languages": {{ config.allowed_languages|tojson }},
-    "auto_approve_short_messages": {{ config.auto_approve_short_messages|tojson }},
-    "short_message_max_length": {{ config.short_message_max_length|default(4)|int }},
-    "first_messages_threshold": {{ config.first_messages_threshold|default(3)|int }},
-    "rules_command_enabled": {{ config.rules_command_enabled|tojson }},
+    "banned_words": {{ (config.banned_words or [])|tojson }},
+    "whitelist_words": {{ (config.whitelist_words or [])|tojson }},
+    "exempt_users": {{ (config.exempt_users or [])|tojson }},
+    "allowed_languages": {{ (config.allowed_languages or ["it"])|tojson }},
+    "auto_approve_short_messages": {{ (config.auto_approve_short_messages if config.auto_approve_short_messages is defined else true)|tojson }},
+    "short_message_max_length": {{ (config.short_message_max_length or 4)|int }},
+    "first_messages_threshold": {{ (config.first_messages_threshold or 3)|int }},
+    "rules_command_enabled": {{ (config.rules_command_enabled if config.rules_command_enabled is defined else true)|tojson }},
     "night_mode": {
-        "enabled": {{ config.night_mode.enabled|tojson }},
-        "start_hour": {{ config.night_mode.start_hour|tojson }},
-        "end_hour": {{ config.night_mode.end_hour|tojson }},
-        "grace_period_seconds": {{ config.night_mode.grace_period_seconds|default(15)|int }},
-        "night_mode_groups": {{ config.night_mode.night_mode_groups|tojson }}
+        "enabled": {{ ((config.night_mode.enabled if config.night_mode and config.night_mode.enabled is defined else true))|tojson }},
+        "start_hour": {{ ((config.night_mode.start_hour if config.night_mode else "23:00"))|tojson }},
+        "end_hour": {{ ((config.night_mode.end_hour if config.night_mode else "07:00"))|tojson }},
+        "grace_period_seconds": {{ ((config.night_mode.grace_period_seconds if config.night_mode else 15))|int }},
+        "night_mode_groups": {{ ((config.night_mode.night_mode_groups if config.night_mode else []))|tojson }}
     },
     "spam_detector": {
-        "time_window_hours": {{ config.spam_detector.time_window_hours|default(1)|float }},
-        "similarity_threshold": {{ config.spam_detector.similarity_threshold|default(0.85)|float }},
-        "min_groups": {{ config.spam_detector.min_groups|default(2)|int }}
+        "time_window_hours": {{ ((config.spam_detector.time_window_hours if config.spam_detector else 1))|float }},
+        "similarity_threshold": {{ ((config.spam_detector.similarity_threshold if config.spam_detector else 0.85))|float }},
+        "min_groups": {{ ((config.spam_detector.min_groups if config.spam_detector else 2))|int }}
     },
-    "rules_message": {{ config.rules_message|tojson }}
+    "rules_message": {{ (config.rules_message or "")|tojson }}
 }
 </script>
 {% endblock %}
@@ -757,3 +757,5 @@ function showAlert(message, type) {
         }
     }, 5000);
 }
+</script>
+{% endblock %}
