@@ -679,41 +679,255 @@ class DashboardApp:
                 if not self.prompt_manager:
                     self.logger.warning("SystemPromptManager non disponibile, usando fallback")
                     # Fallback: prompt di default
-                    default_prompt = """Sei un moderatore esperto di un gruppo Telegram universitario italiano. Analizza ogni messaggio con attenzione e rispondi SOLO con questo formato:
-                                        INAPPROPRIATO: SI/NO
-                                        DOMANDA: SI/NO
-                                        LINGUA: CONSENTITA/NON CONSENTITA
+                    default_prompt = """Sei un moderatore esperto di un gruppo Telegram universitario italiano. Analizza ogni messaggio con attenzione e rispondi SOLO con questo formato:\n"
+                                        "INAPPROPRIATO: SI/NO\n"
+                                        "DOMANDA: SI/NO\n"
+                                        "LINGUA: CONSENTITA/NON CONSENTITA\n\n"
+                                        
+                                        "⚠️ PRIORITÀ ASSOLUTA: EVITARE FALSI POSITIVI! CONSIDERA APPROPRIATO QUALSIASI MESSAGGIO CHE NON È CHIARAMENTE PROBLEMATICO.\n\n"
 
-                                        ⚠️ PRIORITÀ ASSOLUTA: EVITARE FALSI POSITIVI! CONSIDERA APPROPRIATO QUALSIASI MESSAGGIO CHE NON È CHIARAMENTE PROBLEMATICO."""
-                    
-                    prompt_history = [{
-                        'version': 1,
-                        'timestamp': datetime.now().isoformat(),
-                        'prompt_preview': 'Prompt di default del sistema',
-                        'length': len(default_prompt),
-                        'is_current': True
-                    }]
+                                        "REGOLE PER ALFABETI NON LATINI:\n"
+                                        "❌ Qualsiasi messaggio che contiene prevalentemente testo in cirillico o altri alfabeti non latini deve essere marcato come LINGUA: NON CONSENTITA.\n"
+                                        "❌ Messaggi con @username seguiti da testo in cirillico sono sempre da considerare INAPPROPRIATO: SI\n"
+                                        "❌ Messaggi con emoji + testo in cirillico sono sempre da considerare INAPPROPRIATO: SI\n"
+                                        "❌ Annunci pubblicitari in qualsiasi lingua diversa dall'italiano sono sempre INAPPROPRIATO: SI\n\n"
+                                        
+                                        "PROCESSO DI ANALISI (da seguire in ordine):\n"
+                                        "1. Verifica se il messaggio è completamente in lingua straniera\n"
+                                        "2. Verifica se contiene insulti gravi diretti ad altri utenti\n"
+                                        "3. Verifica se contiene offerte commerciali ESPLICITE con menzione di pagamenti\n"
+                                        "4. Verifica se contiene promozioni di investimenti, trading o criptovalute\n"
+                                        "5. **NUOVO**: Verifica se contiene link a canali esterni per vendita/offerta materiale didattico\n"
+                                        "6. Verifica se il messaggio è una DOMANDA (con o senza punto interrogativo)\n"
+                                        "7. Se hai dubbi, considera il messaggio APPROPRIATO\n\n"
+                                        
+                                        "DETTAGLIO DEI CRITERI:\n\n"
+                                        
+                                        "1️⃣ LINGUA (analizza per prima cosa):\n"
+                                        f"Lingue consentite (codici ISO 639-1): {self.allowed_languages}\n"
+                                        "❌ NON CONSENTITA: SOLO messaggi INTERAMENTE in lingua straniera (non tra quelle consentite) senza italiano\n"
+                                        "    • Esempio non consentito (se solo 'it' è consentito): Hello everyone how are you today\n"
+                                        "✅ CONSENTITA: Tutto il resto, incluso:\n"
+                                        "    • Messaggi in italiano con alcune parole straniere\n"
+                                        "    • Messaggi che citano o discutono lingue straniere\n"
+                                        "    • Messaggi che contengono termini tecnici in inglese\n"
+                                        "    • Messaggi con errori grammaticali o sintattici\n\n"
+                                        
+                                        "2️⃣ INAPPROPRIATO (solo questi casi specifici sono inappropriati):\n"
+                                        "❌ Vendita ESPLICITA di materiale didattico con CHIARA menzione di denaro\n"
+                                        "    • Vendo panieri a 20€, Offro appunti a pagamento, Materiale disponibile a 15€\n"
+                                        "❌ Transazioni commerciali con termini ESPLICITI come:\n"
+                                        "    • prezzo, costo, euro, €, pagamento, acquistare, vendere, comprare, soldi\n"
+                                        "❌ Inviti a contattare privatamente SOLO SE accompagnati da termini commerciali:\n"
+                                        "    • Scrivetemi in privato per acquistare, Contattatemi per prezzi\n"
+                                        "❌ **NUOVO CRITICO**: Link a canali esterni Telegram per vendita/offerta materiale didattico:\n"
+                                        "    • Qualsiasi messaggio che contiene link t.me/canale + offerta di panieri/riassunti/materiale\n"
+                                        "    • Messaggi che promuovono 'canali ufficiali' per vendita materiale didattico\n"
+                                        "    • Inviti a iscriversi a canali esterni per ottenere materiale didattico\n"
+                                        "    • Esempi: 'Iscrivetevi al canale t.me/panieri', 'Materiale disponibile su t.me/riassunti'\n"
+                                        "    • 'Affidatevi all'unico canale preposto alla vendita di panieri'\n"
+                                        "❌ Insulti pesanti diretti ad altri utenti:\n"
+                                        "    • Offese personali gravi, linguaggio d'odio, minacce\n"
+                                        "❌ Promozioni di investimenti o trading:\n"
+                                        "    • Messaggi che promuovono guadagni facili attraverso trading o investimenti\n"
+                                        "    • Messaggi che promuovono esperti di trading/investimenti da contattare\n"
+                                        "    • Promozioni di servizi di consulenza per investimenti o trading\n"
+                                        "    • Offerte di guadagno attraverso criptovalute o forex\n"
+                                        "    • Messaggi che condividono link a gruppi o bot per investimenti\n\n"
+                                        
+                                        "ATTENZIONE SPAM MASCHERATO DI PANIERI (SEMPRE INAPPROPRIATO):\n"
+                                        "❌ Qualsiasi messaggio che invita al contatto privato per panieri/materiale È SEMPRE INAPPROPRIATO, anche senza menzione di prezzo:\n"
+                                        "    • Ciao, chi cerca panieri aggiornati mi scriva\n"
+                                        "    • Ho materiale completo, contattatemi\n" 
+                                        "    • Panieri 2024 disponibili, interessati in privato\n"
+                                        "    • Chi vuole i panieri mi contatti\n"
+                                        "    • Ho tutto il materiale, scrivetemi\n"
+                                        "    • Panieri completi, contattatemi per info\n"
+                                        "❌ REGOLA: Se qualcuno offre panieri/materiale E chiede di essere contattato privatamente = INAPPROPRIATO: SI\n"
+                                        "❌ Anche frasi come 'mi scriva', 'contattatemi', 'interessati in privato' sono SEMPRE sospette se legate a panieri\n\n"
+                                        
+                                        "❌ **NUOVA REGOLA CRITICA - LINK A CANALI ESTERNI**:\n"
+                                        "❌ Qualsiasi messaggio che contiene link a canali Telegram esterni (t.me/*, telegram.me/*) combinato con:\n"
+                                        "    • Offerta di materiale didattico (panieri, riassunti, appunti, slides, etc.)\n"
+                                        "    • Inviti a iscriversi per ottenere materiale\n"
+                                        "    • Promozione di 'canali ufficiali' per materiale\n"
+                                        "    • È SEMPRE INAPPROPRIATO: SI, anche se non menziona prezzi esplicitamente\n"
+                                        "❌ Esempi SEMPRE inappropriati:\n"
+                                        "    • 'Iscrivetevi al canale https://t.me/panieri per materiale aggiornato'\n"
+                                        "    • 'Affidatevi all'unico canale ufficiale preposto alla vendita di panieri t.me/riassunti'\n"
+                                        "    • 'Qui sotto il link del canale dove iscriversi se volete panieri https://t.me/materiale'\n"
+                                        "    • Qualsiasi variazione che combina link esterni + materiale didattico\n\n"
+                                        
+                                        "3️⃣ CASI SEMPRE APPROPRIATI (non marcare mai come inappropriati):\n"
+                                        "✅ Richieste di materiale didattico tra studenti:\n"
+                                        "    • Qualcuno ha i panieri di questo esame?, Avete gli appunti per Diritto Privato?\n"
+                                        "✅ Richieste di aggiunta a gruppi di studio o scambio numeri per gruppi:\n"
+                                        "    • Mandatemi i vostri numeri per il gruppo WhatsApp, Posso entrare nel gruppo di studio?\n"
+                                        "✅ Scambio di contatti per GRUPPI DI STUDIO (mai marcare come inappropriato):\n"
+                                        "    • Scrivetemi in privato per entrare nel gruppo, Vi aggiungo al gruppo WhatsApp\n"
+                                        "✅ Discussioni accademiche legittime su economia, finanza o criptovalute\n"
+                                        "✅ Lamentele sull'università o sui servizi didattici\n"
+                                        "✅ Domande su esami, procedure burocratiche, certificati, date\n"
+                                        "✅ Messaggi brevi, emoji, numeri di telefono, indirizzi email\n\n"
+                                        "✅ Richieste di compilazione questionari o partecipazione a ricerche accademiche:\n"
+                                        "    • Studenti che cercano partecipanti per tesi, ricerche o progetti universitari\n"
+                                        "    • Link a Google Forms, SurveyMonkey, o altre piattaforme di sondaggi per scopi didattici\n"
+                                        "    • Richieste di aiuto per raccolta dati o partecipazione a esperimenti accademici\n"
+                                        "    • Link relativi a contenuti didattici o universitari come progetti di ricerca legittimi\n\n"
+                                        "✅ Richieste legittime di panieri che NON sono offerte di vendita:\n"
+                                        "    • Ciao a tutti, qualcuno ha i panieri aggiornati di diritto privato?\n"
+                                        "    • Cerco i panieri aggiornati, qualcuno può aiutarmi?\n\n"
+
+                                        "\nREGOLE SPECIALI PER LINK:\n"
+                                        "✅ Link a gruppi WhatsApp sono SEMPRE appropriati se:\n"
+                                        "    • Non contengono menzione esplicita di denaro o pagamenti\n"
+                                        "    • Non promuovono vendita di materiale didattico\n"
+                                        "    • Non contengono termini commerciali (prezzo, costo, euro, €, pagamento)\n"
+                                        "❌ Link a canali Telegram esterni (t.me/*, telegram.me/*) sono INAPPROPRIATI se:\n"
+                                        "    • Combinati con offerta di materiale didattico\n"
+                                        "    • Presentati come 'canali ufficiali' per materiale\n"
+                                        "    • Contengono inviti a iscriversi per ottenere panieri/riassunti/materiale\n"
+                                        "\n⚠️ Esempi di link SEMPRE APPROPRIATI:\n"
+                                        "    • https://chat.whatsapp.com/Ab12CdEfGhIj (semplice link senza testo aggiuntivo)\n"
+                                        "    • Ecco il link: https://chat.whatsapp.com/Ab12CdEfGhIj\n"
+                                        "⚠️ Esempi di link SEMPRE INAPPROPRIATI:\n"
+                                        "    • https://t.me/panieri + qualsiasi menzione di materiale didattico\n"
+                                        "    • t.me/riassunti + invito a iscriversi per materiale\n\n"
+                                        
+                                        "ESEMPI DI MESSAGGI CHIARAMENTE INAPPROPRIATI (marca SI):\n"
+                                        "- Vendo panieri aggiornati e materiale didattico a 30€, contattatemi in privato\n"
+                                        "- Offro aiuto tesi a pagamento, scrivetemi su WhatsApp 123456789\n"
+                                        "- Entra nella community! @panieriunipegasomercatorum - materiale a soli 15€\n"
+                                        "- Ciao a tutti! Ho scoperto un sistema per guadagnare con il trading. Contattate @trader123 per info\n"
+                                        "- Ciao a tutti😊 Se cercate panieri aggiornati e corretti con anche le risposte inedite di triennali e magistrali\n"
+                                        "- **NUOVO**: Affidatevi all'unico canale ufficiale preposto alla vendita di panieri https://t.me/panieri\n"
+                                        "- **NUOVO**: Qui sotto il link del canale dove iscriversi se volete panieri https://t.me/materiale\n\n"
+                                        
+                                        "ESEMPI DI MESSAGGI TRUFFA CRYPTO/TRADING (marca SI):\n"
+                                        "- Ho trovato qualcuno di cui mi fido per fare trading di criptovalute. Contattala direttamente\n"
+                                        "- Grazie a @expert_trader ho aumentato i miei guadagni del 200%, contattatelo\n\n"
+
+                                        "ESEMPI DI MESSAGGI DI VENDITA DI PANIERI MASCHERATI (marca SI):\n"
+                                        "- Ciao a tutti😊 Se cercate panieri aggiornati e corretti contattarmi\n"
+                                        "- Ciao ragazzi, chi cerca panieri completi 2025 mi scriva\n\n"
+                                        
+                                        "ESEMPI DI MESSAGGI AMBIGUI MA APPROPRIATI (marca NO):\n"
+                                        "- Ciao a tutti! Sto lavorando alla mia tesi e cerco partecipanti per un questionario. Ecco il link: https://forms.gle...\n"
+                                        "- Salve, sono uno studente di economia e sto conducendo una ricerca, qualcuno può compilare questo form? https://forms.gle...\n"
+                                        "- Qualcuno può passarmi i panieri aggiornati?\n"
+                                        "- Chi ha i panieri di questo esame? Ne avrei bisogno urgentemente\n"
+                                        "- Per favore mandate i numeri così vi aggiungo al gruppo WhatsApp\n\n"
+                                        
+                                        "CONTESTO UNIVERSITÀ TELEMATICHE:\n"
+                                        "I panieri sono raccolte legittime di domande d'esame. È normale che gli studenti se li scambino gratuitamente. Solo la VENDITA di panieri o la promozione di canali esterni per materiale è inappropriata.\n\n"
+                                        
+                                        "IMPORTANTE: Se un messaggio non è CHIARAMENTE inappropriato secondo i criteri sopra, marcalo come APPROPRIATO. In caso di dubbio, è sempre meglio permettere un messaggio potenzialmente inappropriato piuttosto che bloccare un messaggio legittimo.\n\n"
+
+                                        "ISTRUZIONI SPECIFICHE PER RICONOSCERE DOMANDE:\n"
+                                        "Una domanda è un messaggio che richiede informazioni, chiarimenti, aiuto o conferma da altri utenti. Marca come DOMANDA: SI se:\n\n"
+                                        
+                                        "✅ CRITERI PER RICONOSCERE UNA DOMANDA:\n"
+                                        "• Il messaggio contiene un punto interrogativo ?\n"
+                                        "• Il messaggio inizia con parole interrogative: chi, cosa, come, dove, quando, perché, quale, quanto\n"
+                                        "• Il messaggio chiede informazioni sulla piattaforma, accesso, corsi, esami, costi\n"
+                                        "• Il messaggio richiede conferma con strutture come: 'qualcuno sa', 'c'è qualcuno', 'riuscite a', 'avete'\n"
+                                        "• Il messaggio esprime una richiesta di aiuto o materiale\n"
+                                        "• Il messaggio chiede opinioni o esperienze\n"
+                                        "• Il messaggio usa il condizionale per chiedere informazioni: 'sapreste', 'potreste'\n"
+                                        "• Il messaggio usa formule dirette come: 'mi serve sapere', 'cerco informazioni'\n\n"
+                                        
+                                        "ESEMPI DI DOMANDE DA RICONOSCERE CORRETTAMENTE (marca DOMANDA: SI):\n"
+                                        "- oggi riuscite ad entrare in piattaforma pegaso?\n"
+                                        "- Buongiorno quanto costa all inclusive se fatta al terzo anno?\n"
+                                        "- C'è una rappresentante per lm77?\n"
+                                        "- Qualcuno ha i panieri di storia medievale?\n"
+                                        "- Sapete quando escono i risultati dell'esame di ieri?\n\n"
+                                        
+                                        "NON SONO DOMANDE (marca DOMANDA: NO):\n"
+                                        "- Buongiorno a tutti\n"
+                                        "- Ho superato l'esame finalmente!\n"
+                                        "- Grazie mille per l'aiuto\n\n"
+                                        
+                                        "IMPORTANTE: Una domanda può essere formulata anche senza punto interrogativo, valuta il contesto e l'intento. Ogni richiesta di informazioni o aiuto è una domanda, anche se formulata come affermazione."""
                     
                     bot_status = self.get_bot_status()
                     return render_template('system_prompt.html', 
                                         current_prompt=default_prompt,
-                                        prompt_history=prompt_history,
                                         bot_status=bot_status)
                 
                 # Uso normale del SystemPromptManager
                 current_prompt = self.prompt_manager.get_current_prompt()
-                prompt_history = self.prompt_manager.get_prompt_history()
                 bot_status = self.get_bot_status()
                 
                 return render_template('system_prompt.html', 
                                     current_prompt=current_prompt,
-                                    prompt_history=prompt_history,
                                     bot_status=bot_status)
                                     
             except Exception as e:
                 self.logger.error(f"Errore nella route /prompt: {e}", exc_info=True)
                 flash(f'Errore nel caricamento del system prompt: {str(e)}', 'danger')
                 return redirect(url_for('index'))
+
+        @self.app.route('/api/prompt/test', methods=['POST'])
+        def api_prompt_test():
+            """API per testare il prompt con OpenAI."""
+            data = request.get_json()
+            message = data.get('message', '').strip()
+            prompt = data.get('prompt', '').strip()
+            
+            if not message:
+                return jsonify({'success': False, 'message': 'Messaggio richiesto'}), 400
+            
+            if not prompt:
+                return jsonify({'success': False, 'message': 'Prompt richiesto'}), 400
+            
+            # Usa la stessa logica del bot per testare con OpenAI
+            if self.bot and self.bot.moderation_logic and self.bot.moderation_logic.openai_client:
+                try:
+                    # Temporaneamente sostituisci il system prompt per il test
+                    original_prompt = self.bot.moderation_logic.system_prompt if hasattr(self.bot.moderation_logic, 'system_prompt') else None
+                    
+                    # Usa il prompt custom per il test
+                    response = self.bot.moderation_logic.openai_client.chat.completions.create(
+                        model="gpt-3.5-turbo",
+                        messages=[
+                            {"role": "system", "content": prompt},
+                            {"role": "user", "content": message}
+                        ],
+                        temperature=0.0,
+                        max_tokens=50,
+                        timeout=15
+                    )
+                    
+                    result_text = response.choices[0].message.content.strip() if response.choices[0].message.content else ""
+                    
+                    # Parsing della risposta (stessa logica del bot)
+                    is_inappropriate = "INAPPROPRIATO: SI" in result_text
+                    is_question = "DOMANDA: SI" in result_text
+                    is_disallowed_language = "LINGUA: NON CONSENTITA" in result_text
+                    
+                    return jsonify({
+                        'success': True,
+                        'result': {
+                            'inappropriate': is_inappropriate,
+                            'question': is_question,
+                            'language': 'CONSENTITA' if not is_disallowed_language else 'NON CONSENTITA',
+                            'raw_response': result_text,
+                            'tokens_used': response.usage.total_tokens if hasattr(response, 'usage') else 'N/A'
+                        }
+                    })
+                    
+                except Exception as e:
+                    self.logger.error(f"Errore test OpenAI: {e}")
+                    return jsonify({
+                        'success': False, 
+                        'message': f'Errore API OpenAI: {str(e)}'
+                    }), 500
+            else:
+                return jsonify({
+                    'success': False, 
+                    'message': 'Bot non attivo o OpenAI non configurato'
+                }), 503
         
         @self.app.route('/api/prompt/update', methods=['POST'])
         def api_prompt_update():

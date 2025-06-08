@@ -33,8 +33,8 @@
                         </button>
                     </div>
                     <div class="col-md-3">
-                        <button class="btn btn-outline-info w-100" onclick="createBackup()">
-                            <i class="bi bi-shield-check me-2"></i>Backup
+                        <button class="btn btn-outline-info w-100" onclick="importConfigurations()">
+                            <i class="bi bi-upload me-2"></i>Importa
                         </button>
                     </div>
                 </div>
@@ -64,9 +64,6 @@
                     </button>
                     <button class="btn btn-outline-secondary" onclick="resetBannedWords()">
                         <i class="bi bi-arrow-counterclockwise me-1"></i>Reset
-                    </button>
-                    <button class="btn btn-outline-info" onclick="addCommonBannedWords()">
-                        <i class="bi bi-plus-lg me-1"></i>Aggiungi Comuni
                     </button>
                 </div>
             </div>
@@ -140,18 +137,6 @@
             <div class="card-body">
                 <div class="row g-3">
                     <div class="col-12">
-                        <label for="allowed-languages" class="form-label">Lingue Consentite:</label>
-                        <select class="form-select" id="allowed-languages" multiple>
-                            <option value="it" {% if 'it' in config.allowed_languages %}selected{% endif %}>Italiano</option>
-                            <option value="en" {% if 'en' in config.allowed_languages %}selected{% endif %}>Inglese</option>
-                            <option value="fr" {% if 'fr' in config.allowed_languages %}selected{% endif %}>Francese</option>
-                            <option value="es" {% if 'es' in config.allowed_languages %}selected{% endif %}>Spagnolo</option>
-                            <option value="de" {% if 'de' in config.allowed_languages %}selected{% endif %}>Tedesco</option>
-                        </select>
-                        <small class="text-muted">Tenere premuto Ctrl per selezionare multiple lingue</small>
-                    </div>
-                    
-                    <div class="col-md-6">
                         <div class="form-check">
                             <input class="form-check-input" type="checkbox" id="auto-approve-short" {% if config.auto_approve_short_messages %}checked{% endif %}>
                             <label class="form-check-label" for="auto-approve-short">
@@ -160,24 +145,36 @@
                         </div>
                     </div>
                     
-                    <div class="col-md-6">
+                    <div class="col-12">
                         <label for="short-message-length" class="form-label">Lunghezza max messaggi brevi:</label>
-                        <input type="number" class="form-control" id="short-message-length" value="{{ config.short_message_max_length }}" min="1" max="20">
+                        <select class="form-select" id="short-message-length">
+                            <option value="1" {% if config.short_message_max_length == 1 %}selected{% endif %}>1 carattere</option>
+                            <option value="2" {% if config.short_message_max_length == 2 %}selected{% endif %}>2 caratteri</option>
+                            <option value="3" {% if config.short_message_max_length == 3 %}selected{% endif %}>3 caratteri</option>
+                            <option value="4" {% if config.short_message_max_length == 4 %}selected{% endif %}>4 caratteri</option>
+                            <option value="5" {% if config.short_message_max_length == 5 %}selected{% endif %}>5 caratteri</option>
+                        </select>
                     </div>
                     
-                    <div class="col-md-6">
-                        <label for="first-messages-threshold" class="form-label">Soglia primi messaggi:</label>
-                        <input type="number" class="form-control" id="first-messages-threshold" value="{{ config.first_messages_threshold }}" min="1" max="10">
-                        <small class="text-muted">Numero di messaggi considerati "primi"</small>
-                    </div>
-                    
-                    <div class="col-md-6">
+                    <div class="col-12">
                         <div class="form-check">
                             <input class="form-check-input" type="checkbox" id="rules-command-enabled" {% if config.rules_command_enabled %}checked{% endif %}>
                             <label class="form-check-label" for="rules-command-enabled">
                                 Abilita comando /rules
                             </label>
                         </div>
+                    </div>
+                    
+                    <div class="col-12">
+                        <label for="first-messages-threshold" class="form-label">Soglia primi messaggi:</label>
+                        <select class="form-select" id="first-messages-threshold">
+                            <option value="1" {% if config.first_messages_threshold == 1 %}selected{% endif %}>1 messaggio</option>
+                            <option value="2" {% if config.first_messages_threshold == 2 %}selected{% endif %}>2 messaggi</option>
+                            <option value="3" {% if config.first_messages_threshold == 3 %}selected{% endif %}>3 messaggi</option>
+                            <option value="4" {% if config.first_messages_threshold == 4 %}selected{% endif %}>4 messaggi</option>
+                            <option value="5" {% if config.first_messages_threshold == 5 %}selected{% endif %}>5 messaggi</option>
+                        </select>
+                        <small class="text-muted">Numero di messaggi considerati "primi"</small>
                     </div>
                 </div>
                 
@@ -204,22 +201,17 @@
             </div>
             <div class="card-body">
                 <div class="row g-3">
-                    <div class="col-md-3">
+                    <div class="col-md-4">
                         <label for="night-start-hour" class="form-label">Ora Inizio:</label>
                         <input type="time" class="form-control" id="night-start-hour" value="{{ config.night_mode.start_hour if config.night_mode else '23:00' }}">
                     </div>
                     
-                    <div class="col-md-3">
+                    <div class="col-md-4">
                         <label for="night-end-hour" class="form-label">Ora Fine:</label>
                         <input type="time" class="form-control" id="night-end-hour" value="{{ config.night_mode.end_hour if config.night_mode else '07:00' }}">
                     </div>
                     
-                    <div class="col-md-3">
-                        <label for="grace-period" class="form-label">Periodo di Grazia (secondi):</label>
-                        <input type="number" class="form-control" id="grace-period" value="{{ config.night_mode.grace_period_seconds if config.night_mode else 15 }}" min="0" max="300">
-                    </div>
-                    
-                    <div class="col-md-3">
+                    <div class="col-md-4">
                         <label class="form-label">Stato Attuale:</label>
                         <div>
                             <span id="night-mode-status" class="badge bg-secondary">Verificando...</span>
@@ -240,12 +232,6 @@
                     <div class="d-flex gap-2">
                         <button class="btn btn-primary" onclick="saveNightModeSettings()">
                             <i class="bi bi-save me-1"></i>Salva Night Mode
-                        </button>
-                        <button class="btn btn-outline-warning" onclick="testNightModeNow()">
-                            <i class="bi bi-moon me-1"></i>Test Attivazione
-                        </button>
-                        <button class="btn btn-outline-info" onclick="checkNightModeStatus()">
-                            <i class="bi bi-clock me-1"></i>Verifica Stato
                         </button>
                     </div>
                 </div>
@@ -392,7 +378,7 @@
     "banned_words": {{ (config.banned_words or [])|tojson }},
     "whitelist_words": {{ (config.whitelist_words or [])|tojson }},
     "exempt_users": {{ (config.exempt_users or [])|tojson }},
-    "allowed_languages": {{ (config.allowed_languages or ["it"])|tojson }},
+    "allowed_languages": ["it"],
     "auto_approve_short_messages": {{ (config.auto_approve_short_messages if config.auto_approve_short_messages is defined else true)|tojson }},
     "short_message_max_length": {{ (config.short_message_max_length or 4)|int }},
     "first_messages_threshold": {{ (config.first_messages_threshold or 3)|int }},
@@ -401,7 +387,7 @@
         "enabled": {{ ((config.night_mode.enabled if config.night_mode and config.night_mode.enabled is defined else true))|tojson }},
         "start_hour": {{ ((config.night_mode.start_hour if config.night_mode else "23:00"))|tojson }},
         "end_hour": {{ ((config.night_mode.end_hour if config.night_mode else "07:00"))|tojson }},
-        "grace_period_seconds": {{ ((config.night_mode.grace_period_seconds if config.night_mode else 15))|int }},
+        "grace_period_seconds": 15,
         "night_mode_groups": {{ ((config.night_mode.night_mode_groups if config.night_mode else []))|tojson }}
     },
     "spam_detector": {
@@ -412,9 +398,7 @@
     "rules_message": {{ (config.rules_message or "")|tojson }}
 }
 </script>
-{% endblock %}
 
-{% block extra_js %}
 <script>
 // Check night mode status on page load
 document.addEventListener('DOMContentLoaded', function() {
@@ -451,14 +435,13 @@ function saveExemptUsers() {
 
 // Save general settings
 function saveGeneralSettings() {
-    const allowedLanguages = Array.from(document.getElementById('allowed-languages').selectedOptions).map(option => option.value);
     const autoApproveShort = document.getElementById('auto-approve-short').checked;
     const shortMessageLength = parseInt(document.getElementById('short-message-length').value);
     const firstMessagesThreshold = parseInt(document.getElementById('first-messages-threshold').value);
     const rulesCommandEnabled = document.getElementById('rules-command-enabled').checked;
     
     const settings = {
-        allowed_languages: allowedLanguages,
+        allowed_languages: ['it'], // Fisso su italiano
         auto_approve_short_messages: autoApproveShort,
         short_message_max_length: shortMessageLength,
         first_messages_threshold: firstMessagesThreshold,
@@ -473,7 +456,6 @@ function saveNightModeSettings() {
     const enabled = document.getElementById('night-mode-enabled').checked;
     const startHour = document.getElementById('night-start-hour').value;
     const endHour = document.getElementById('night-end-hour').value;
-    const gracePeriod = parseInt(document.getElementById('grace-period').value);
     const groupsText = document.getElementById('night-mode-groups').value;
     const groups = groupsText.split('\n').map(g => parseInt(g.trim())).filter(g => !isNaN(g));
     
@@ -481,7 +463,7 @@ function saveNightModeSettings() {
         enabled: enabled,
         start_hour: startHour,
         end_hour: endHour,
-        grace_period_seconds: gracePeriod,
+        grace_period_seconds: 15, // Fisso a 15 secondi
         night_mode_groups: groups
     };
     
@@ -595,13 +577,6 @@ function checkNightModeStatus() {
         });
 }
 
-// Test night mode activation
-function testNightModeNow() {
-    if (confirm('Vuoi attivare la Night Mode per test? Questo influenzerà tutti i gruppi configurati.')) {
-        showAlert('Funzione di test non ancora implementata', 'info');
-    }
-}
-
 // Preview rules message
 function previewRulesMessage() {
     const message = document.getElementById('rules-message').value;
@@ -658,23 +633,9 @@ function performExport() {
     showAlert('Configurazioni esportate con successo!', 'success');
 }
 
-// Create backup
-function createBackup() {
-    fetch('/api/backup/create', {
-        method: 'POST'
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            showAlert('Backup creato con successo!', 'success');
-        } else {
-            showAlert(`Errore durante la creazione del backup: ${data.message}`, 'danger');
-        }
-    })
-    .catch(error => {
-        console.error('Errore backup:', error);
-        showAlert('Errore di comunicazione durante la creazione del backup', 'danger');
-    });
+// Import configurations
+function importConfigurations() {
+    showAlert('Funzione di importazione non ancora implementata', 'info');
 }
 
 // Reset functions
@@ -758,4 +719,5 @@ function showAlert(message, type) {
     }, 5000);
 }
 </script>
+
 {% endblock %}

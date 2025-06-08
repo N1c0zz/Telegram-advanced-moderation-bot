@@ -40,37 +40,89 @@ class ConfigManager:
         """Restituisce la configurazione predefinita."""
         return {
             "banned_words": [
-                "panieriunipegasomercatorum", "unitelematica", "vendo panieri",
-                "offro panieri", "panieri a pagamento", "panieri e riassunti",
-                "scorrimento lezioni", "contattatemi per panieri e riassunti"
+            "panieriunipegasomercatorum",
+            "unitelematica",
+            "vendo panieri",
+            "offro panieri",
+            "panieri a pagamento",
+            "panieri e riassunti",
+            "scorrimento lezioni",
+            "contattatemi per panieri e riassunti"
             ],
             "whitelist_words": [
-                "PoloLaDotta", "EmmaSa"
+                "@PoloLaDotta",
+                "@EmmaSa"
             ],
-            "exempt_users": [6232503826, 831728071, 906064950, "PoloLaDotta", 777000, 1087968824],
-            "allowed_languages": ["it"],
+            "exempt_users": [
+                6232503826,
+                831728071,
+                906064950,
+                "PoloLaDotta",
+                777000,
+                1087968824
+            ],
+            "allowed_languages": [
+                "it"
+            ],
             "auto_approve_short_messages": True,
             "short_message_max_length": 4,
-            "google_sheet_id": "",
-            "google_credentials_file": "config/credentials.json",
-            "share_on_startup": False,
-            "share_email": "nicomorini25@gmail.com",
-            "check_headers": False,
-            "backup_interval_days": 7,
-            "backup_directory": "backups",
             "first_messages_threshold": 3,
-            "admin_notification_user_id": None,
+            "admin_notification_user_id": False,
             "night_mode": {
                 "start_hour": "23:00",
                 "end_hour": "07:00",
                 "start_message": "⛔ Il gruppo è attualmente in modalità notturna. L'invio di messaggi è temporaneamente disabilitato fino alle {end_hour}.",
                 "end_message": "🔔 La modalità notturna è terminata. L'invio di messaggi è ora nuovamente abilitato.",
                 "night_mode_groups": [
-                    -1001413883199, -1002203654435, -1002205878265,
-                    -1002067796519, -1001575146602, -1001355576572,
-                    -1001772950682
+                -1001413883199,
+                -1002203654435,
+                -1002205878265,
+                -1002067796519,
+                -1001575146602,
+                -1001355576572,
+                -1001772950682
                 ],
-                "enabled": True
+                "enabled": True,
+                "grace_period_seconds": 15,
+                "allow_web_page_previews_in_night_mode": False
+            },
+            "rules_message": "📋 **LINEE GUIDA DEL GRUPPO**\n\n🚫 Non consentito l'invio di link estranei\n🚫 Non consentita offerta/vendita di materiale didattico\n🚫 Non consentito lo spam di messaggi\n🚫 Non consentito l'invio di immagini\n🚫 Non consentito l'uso di termini espliciti/offensivi\n\n⚠️ ATTENZIONE\n\n🔴 Non accettate proposte di vendita di materiale didattico da utenti estranei, sono spesso truffe!\n\n✅ Grazie per la collaborazione!",
+            "rules_command_enabled": True,
+            "csv_enabled": True,
+            "csv_data_directory": "data/csv",
+            "csv_backup_directory": "data/csv_backups",
+            "csv_auto_backup_enabled": True,
+            "csv_auto_backup_row_threshold": 2000,
+            "csv_auto_backup_preserve_headers": True,
+            "csv_backup_keep_days": 30,
+            "log_directory": "logs",
+            "log_level": "INFO",
+            "disable_console_logging": True,
+            "drop_pending_updates_on_start": True,
+            "scheduler_check_interval_seconds": 60,
+            "startup_night_mode_check_delay_seconds": 20,
+            "default_rejection_notification": "❌ Messaggio eliminato. Attenersi alle linee guida del gruppo.\nScrivimi in chat il comando /rules per conoscere le regole del gruppo!",
+            "user_banned_notification_suffix": "\nL'utente è stato sanzionato.",
+            "spam_detector": {
+                "time_window_hours": 1,
+                "similarity_threshold": 0.85,
+                "min_groups": 2
+            },
+            "message_cache": {
+                "max_hours": 3
+            },
+            "dashboard": {
+                "enabled": True,
+                "host": "127.0.0.1",
+                "port": 5000,
+                "debug": False,
+                "secret_key": "change-this-secret-key-in-production",
+                "require_auth": False,
+                "admin_users": [
+                6232503826,
+                831728071,
+                906064950
+                ]
             }
         }
 

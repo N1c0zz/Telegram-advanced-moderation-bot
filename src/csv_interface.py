@@ -53,6 +53,15 @@ class CSVDataManager:
         self.data_dir = self.config.get("csv_data_directory", "data/csv")
         self.backup_dir = self.config.get("csv_backup_directory", "data/csv_backups")
         
+        self.auto_backup_enabled = self.config.get("csv_auto_backup_enabled", True)
+        self.auto_backup_threshold = self.config.get("csv_auto_backup_row_threshold", 2000)
+        self.auto_backup_preserve_headers = self.config.get("csv_auto_backup_preserve_headers", True)
+
+        if self.auto_backup_enabled:
+            self.logger.info(f"Backup automatico CSV abilitato: soglia {self.auto_backup_threshold} righe")
+        else:
+            self.logger.info("Backup automatico CSV disabilitato")
+
         # Inizializza solo se abilitato in config
         self.enabled = self.config.get("csv_enabled", True)  # Default abilitato
         
@@ -104,10 +113,10 @@ class CSVDataManager:
             self.logger.error(f"Errore nella verifica headers per {table_name}: {e}")
     
     def _append_to_csv(self, table_name: str, data: List[str]) -> bool:
-        """Aggiunge una riga a un file CSV in modo thread-safe."""
+        """Aggiunge una riga a un file CSV in modo thread-safe con backup automatico."""
         if not self.enabled:
             self.logger.debug(f"CSV disabilitato, skip salvataggio su {table_name}")
-            return True  # Ritorna success per non interrompere il flusso
+            return True
             
         if table_name not in self.csv_structure:
             self.logger.error(f"Tabella CSV sconosciuta: {table_name}")
@@ -120,8 +129,14 @@ class CSVDataManager:
                 with open(file_path, 'a', newline='', encoding='utf-8') as csvfile:
                     writer = csv.writer(csvfile)
                     writer.writerow(data)
-                return True
-                
+            
+            # NUOVO: Controlla se è necessario il backup automatico
+            # Solo per le tabelle principali che crescono rapidamente
+            if table_name in ['messages', 'admin']:  # Tabelle che crescono molto
+                self.check_and_auto_backup_if_needed(table_name)
+            
+            return True
+            
         except Exception as e:
             self.logger.error(f"Errore durante la scrittura su CSV {table_name}: {e}", exc_info=True)
             return False
@@ -520,3 +535,123 @@ class CSVDataManager:
             status["files_exist"][table_name] = os.path.exists(file_path)
         
         return status
+
+    def check_and_auto_backup_if_needed(self, table_name: str) -> bool:
+        """
+        Controlla se un file CSV ha raggiunto la soglia di righe e esegue backup automatico.
+        
+        Args:
+            table_name: Nome della tabella da controllare
+            
+        Returns:
+            bool: True se è stato eseguito un backup, False altrimenti
+        """
+        if not self.enabled or not self.auto_backup_enabled:
+            return False
+        
+        if table_name not in self.csv_structure:
+            return False
+        
+        file_path = os.path.join(self.data_dir, self.csv_structure[table_name]["filename"])
+        
+        if not os.path.exists(file_path):
+            return False
+        
+        try:
+            # Conta le righe del file (escludendo header)
+            with open(file_path, 'r', encoding='utf-8') as csvfile:
+                reader = csv.reader(csvfile)
+                row_count = sum(1 for row in reader) - 1  # -1 per header
+            
+            # Se non ha raggiunto la soglia, non fare nulla
+            if row_count < self.auto_backup_threshold:
+                return False
+            
+            self.logger.info(f"🔄 File {table_name} ha raggiunto {row_count} righe (soglia: {self.auto_backup_threshold})")
+            self.logger.info(f"   Avvio backup automatico e svuotamento...")
+            
+            # Esegui backup automatico con svuotamento
+            backup_success = self._perform_auto_backup_and_clear(table_name, file_path, row_count)
+            
+            if backup_success:
+                self.logger.info(f"✅ Backup automatico di {table_name} completato con successo")
+            else:
+                self.logger.error(f"❌ Backup automatico di {table_name} fallito")
+            
+            return backup_success
+            
+        except Exception as e:
+            self.logger.error(f"Errore durante controllo backup automatico per {table_name}: {e}")
+            return False
+
+
+    def _perform_auto_backup_and_clear(self, table_name: str, file_path: str, row_count: int) -> bool:
+        """
+        Esegue il backup automatico e svuota il file originale.
+        
+        Args:
+            table_name: Nome della tabella
+            file_path: Percorso del file CSV
+            row_count: Numero di righe nel file
+            
+        Returns:
+            bool: True se il backup e svuotamento sono riusciti
+        """
+        try:
+            with self.lock:  # Thread safety
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                
+                # Nome del file di backup: messages-20240115_143022.csv
+                backup_filename = f"{table_name}-{timestamp}.csv"
+                backup_path = os.path.join(self.backup_dir, backup_filename)
+                
+                # Crea directory di backup se non esiste
+                os.makedirs(self.backup_dir, exist_ok=True)
+                
+                # STEP 1: Copia il file corrente nel backup
+                shutil.copy2(file_path, backup_path)
+                
+                # STEP 2: Verifica che il backup sia stato creato correttamente
+                if not os.path.exists(backup_path):
+                    raise Exception(f"Backup file non creato: {backup_path}")
+                
+                # Verifica che il backup contenga i dati
+                with open(backup_path, 'r', encoding='utf-8') as backup_file:
+                    backup_reader = csv.reader(backup_file)
+                    backup_rows = sum(1 for row in backup_reader)
+                    if backup_rows != (row_count + 1):  # +1 per header
+                        raise Exception(f"Backup incompleto: attese {row_count + 1} righe, trovate {backup_rows}")
+                
+                # STEP 3: Svuota il file originale mantenendo solo l'header
+                if self.auto_backup_preserve_headers:
+                    headers = self.csv_structure[table_name]["headers"]
+                    with open(file_path, 'w', newline='', encoding='utf-8') as csvfile:
+                        writer = csv.writer(csvfile)
+                        writer.writerow(headers)
+                    self.logger.info(f"   File {table_name} svuotato (header preservato)")
+                else:
+                    # Svuota completamente (non raccomandato)
+                    open(file_path, 'w').close()
+                    self.logger.info(f"   File {table_name} svuotato completamente")
+                
+                # STEP 4: Log del successo
+                backup_size_mb = os.path.getsize(backup_path) / 1024 / 1024
+                self.logger.info(
+                    f"📦 Backup automatico creato: {backup_filename} "
+                    f"({row_count} righe, {backup_size_mb:.2f} MB)"
+                )
+                
+                return True
+                
+        except Exception as e:
+            self.logger.error(f"Errore durante backup automatico di {table_name}: {e}")
+            
+            # Cleanup in caso di errore
+            try:
+                if os.path.exists(backup_path):
+                    os.remove(backup_path)
+                    self.logger.info(f"Backup parziale rimosso: {backup_filename}")
+            except:
+                pass
+            
+            return False
