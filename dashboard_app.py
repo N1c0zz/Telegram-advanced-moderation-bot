@@ -14,10 +14,13 @@ import logging
 # Aggiungi il percorso src per importazioni
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
+from src.auth import AuthManager, auth_required, is_authenticated, get_current_username
+from src.auth_routes import setup_auth_routes
+from flask_login import current_user
+
 from src.bot_core import TelegramModerationBot
 from src.config_manager import ConfigManager
 from src.user_management import UserManagementSystem, SystemPromptManager, ConfigurationManager
-
 
 class DashboardApp:
     """
@@ -28,6 +31,11 @@ class DashboardApp:
         """Inizializzazione con gestione sicura degli import."""
         self.app = Flask(__name__)
         self.app.secret_key = os.getenv("DASHBOARD_SECRET_KEY", "your-secret-key-change-this")
+
+        # Inizializza autenticazione
+        self.auth_manager = AuthManager()
+        self.auth_manager.init_app(self.app)
+        setup_auth_routes(self.app, self.auth_manager)
         
         # Configurazione Flask
         self.app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file upload
@@ -206,12 +214,22 @@ class DashboardApp:
                     return f"{secs}s"
             except:
                 return "0s"
+
+        @self.app.template_global()
+        def get_auth_info():
+            """Fornisce informazioni di autenticazione ai template."""
+            return {
+                'is_authenticated': is_authenticated(),
+                'current_username': get_current_username(),
+                'auth_user': current_user if current_user.is_authenticated else None
+            }
     
     def setup_routes(self):
         """Configura tutte le route della dashboard."""
         
         # --- Route principali ---
         @self.app.route('/')
+        @auth_required
         def index():
             """Homepage della dashboard."""
             bot_status = self.get_bot_status()
@@ -223,6 +241,7 @@ class DashboardApp:
         
         # --- Controllo Bot ---
         @self.app.route('/bot/start', methods=['POST'])
+        @auth_required
         def start_bot():
             """Avvia il bot."""
             if self.bot and hasattr(self.bot, '_is_running') and self.bot._is_running:
@@ -239,6 +258,7 @@ class DashboardApp:
             return redirect(url_for('index'))
         
         @self.app.route('/api/bot/force-stop', methods=['POST'])
+        @auth_required
         def api_force_stop_bot():
             """API per force stop del bot."""
             try:
@@ -270,6 +290,7 @@ class DashboardApp:
                 })
         
         @self.app.route('/bot/stop', methods=['POST'])
+        @auth_required
         def stop_bot():
             """Ferma il bot."""
             try:
@@ -293,12 +314,14 @@ class DashboardApp:
             return redirect(url_for('index'))
         
         @self.app.route('/api/bot/status')
+        @auth_required
         def api_bot_status():
             """API per stato del bot."""
             return jsonify(self.get_bot_status())
         
         # --- Gestione Messaggi ---
         @self.app.route('/messages')
+        @auth_required
         def messages():
             """Pagina messaggi recenti."""
             limit = request.args.get('limit', 30, type=int)
@@ -348,6 +371,7 @@ class DashboardApp:
                                 bot_status=bot_status)  # <-- AGGIUNTO
         
         @self.app.route('/messages/deleted')
+        @auth_required
         def deleted_messages():
             """Pagina messaggi eliminati."""
             limit = request.args.get('limit', 20, type=int)
@@ -406,6 +430,7 @@ class DashboardApp:
         
         # --- Gestione Utenti ---
         @self.app.route('/users/banned')
+        @auth_required
         def banned_users():
             """Pagina utenti bannati."""
             limit = request.args.get('limit', 50, type=int)  # Aumentato il default a 50
@@ -429,6 +454,7 @@ class DashboardApp:
                                  bot_status=bot_status)
         
         @self.app.route('/api/user/ban', methods=['POST'])
+        @auth_required
         def api_ban_user():
             """API per bannare un utente."""
             data = request.get_json()
@@ -453,6 +479,7 @@ class DashboardApp:
                 return jsonify({'success': False, 'message': 'Bot non attivo'}), 503
         
         @self.app.route('/api/user/unban', methods=['POST'])
+        @auth_required
         def api_unban_user():
             """API per sbannare un utente."""
             data = request.get_json()
@@ -476,6 +503,7 @@ class DashboardApp:
                 return jsonify({'success': False, 'message': 'Bot non attivo'}), 503
         
         @self.app.route('/api/user/search/<int:user_id>')
+        @auth_required
         def api_user_search(user_id):
             """API per cercare informazioni su un utente."""
             if not self.user_manager:
@@ -485,6 +513,7 @@ class DashboardApp:
             return jsonify(user_data)
 
         @self.app.route('/api/recent-activity')
+        @auth_required
         def api_recent_activity():
             """API dedicata per attività recente sulla homepage."""
             try:
@@ -581,6 +610,7 @@ class DashboardApp:
         
         # --- Configurazioni ---
         @self.app.route('/config')
+        @auth_required
         def config():
             """Pagina configurazioni con fallback sicuro."""
             try:
@@ -638,6 +668,7 @@ class DashboardApp:
                 return redirect(url_for('index'))
         
         @self.app.route('/api/config/update', methods=['POST'])
+        @auth_required
         def api_config_update():
             """API per aggiornare configurazioni."""
             if not self.config_editor:
@@ -673,6 +704,7 @@ class DashboardApp:
         
         # --- System Prompt ---
         @self.app.route('/prompt')
+        @auth_required
         def system_prompt():
             """Pagina gestione system prompt con fallback sicuro."""
             try:
@@ -869,6 +901,7 @@ class DashboardApp:
                 return redirect(url_for('index'))
 
         @self.app.route('/api/prompt/test', methods=['POST'])
+        @auth_required
         def api_prompt_test():
             """API per testare il prompt con OpenAI."""
             data = request.get_json()
@@ -930,6 +963,7 @@ class DashboardApp:
                 }), 503
         
         @self.app.route('/api/prompt/update', methods=['POST'])
+        @auth_required
         def api_prompt_update():
             """API per aggiornare system prompt."""
             if not self.prompt_manager:
@@ -949,6 +983,7 @@ class DashboardApp:
             })
         
         @self.app.route('/api/prompt/reset', methods=['POST'])
+        @auth_required
         def api_prompt_reset():
             """API per reset prompt a default."""
             if not self.prompt_manager:
@@ -963,6 +998,7 @@ class DashboardApp:
         
         # --- Backup e Download ---
         @self.app.route('/backup')
+        @auth_required
         def backup_page():
             """Pagina backup e download con fallback sicuro."""
             try:
@@ -991,6 +1027,7 @@ class DashboardApp:
                 return redirect(url_for('index'))
         
         @self.app.route('/api/backup/create', methods=['POST'])
+        @auth_required
         def api_create_backup():
             """API per creare backup."""
             if not self.bot or not self.bot.csv_manager:
@@ -1006,6 +1043,7 @@ class DashboardApp:
                 return jsonify({'success': False, 'message': f'Errore: {str(e)}'}), 500
         
         @self.app.route('/download/csv/<table_name>')
+        @auth_required
         def download_csv(table_name):
             """Download file CSV."""
             if not self.bot or not self.bot.csv_manager:
@@ -1040,6 +1078,7 @@ class DashboardApp:
         
         # --- Analytics ---
         @self.app.route('/analytics')
+        @auth_required
         def analytics():
             """Pagina analytics e statistiche."""
             if not self.user_manager:
@@ -1056,6 +1095,7 @@ class DashboardApp:
                                  daily_stats=daily_stats[-30:])  # Ultimi 30 giorni
         
         @self.app.route('/api/analytics/timeframe/<timeframe>')
+        @auth_required
         def api_analytics_timeframe(timeframe):
             """API per dati analytics per timeframe."""
             if not self.user_manager:
@@ -1068,6 +1108,7 @@ class DashboardApp:
             return jsonify(stats)
         
         @self.app.route('/api/analytics/unban-stats')
+        @auth_required
         def api_unban_stats():
             """API per statistiche unban."""
             if not self.user_manager:
@@ -1093,6 +1134,18 @@ class DashboardApp:
                                 error_code=500, 
                                 error_message="Errore interno del server",
                                 bot_status=bot_status), 500
+        
+        @self.app.errorhandler(401)
+        def unauthorized(error):
+            """Handler per errori di autenticazione."""
+            flash('Accesso non autorizzato. Effettua il login.', 'warning')
+            return redirect(url_for('login'))
+
+        @self.app.errorhandler(403)
+        def forbidden(error):
+            """Handler per accesso negato."""
+            flash('Accesso negato. Privilegi insufficienti.', 'danger')
+            return redirect(url_for('index'))
     
     # --- Metodi di gestione Bot ---
     
@@ -1292,7 +1345,10 @@ def setup_template_context(app):
         return {
             'current_time': datetime.now(),
             'app_name': 'Bot Moderazione Dashboard',
-            'app_version': '1.0.0'
+            'app_version': '1.0.0',
+            'is_authenticated': is_authenticated(),
+            'current_username': get_current_username(),
+            'auth_user': current_user if current_user.is_authenticated else None
         }
 
 # --- Funzione principale ---
@@ -1305,9 +1361,18 @@ def create_app():
     return dashboard
 
 if __name__ == '__main__':
-    # CARICA .env file prima di tutto
     from dotenv import load_dotenv
     load_dotenv()
+    
+    required_vars = ["TELEGRAM_BOT_TOKEN", "DASHBOARD_SECRET_KEY", "DASHBOARD_USERNAME", "DASHBOARD_PASSWORD"]
+    missing_vars = [var for var in required_vars if not os.getenv(var)]
+    
+    if missing_vars:
+        print(f"❌ ERRORE: Variabili d'ambiente mancanti: {missing_vars}")
+        print("\nControlla il file .env e assicurati di avere:")
+        for var in missing_vars:
+            print(f"  {var}=your-value")
+        sys.exit(1)
     
     # Verifica variabili d'ambiente
     if not os.getenv("TELEGRAM_BOT_TOKEN"):
@@ -1325,10 +1390,11 @@ if __name__ == '__main__':
     debug = os.getenv("DASHBOARD_DEBUG", "False").lower() == "true"
     
     print(f"""
-🚀 Dashboard Bot Moderazione
-📍 URL: http://{host}:{port}
-🔧 Debug: {debug}
-    """)
+        🔐 Dashboard Bot Moderazione (PROTETTA)
+        📍 URL: http://{host}:{port}
+        🔧 Debug: {debug}
+        🔑 Login richiesto per l'accesso
+            """)
     
     try:
         dashboard.run(host=host, port=port, debug=debug)
