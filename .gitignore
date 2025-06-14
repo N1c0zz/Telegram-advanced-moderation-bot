@@ -85,3 +85,5 @@ data/
 
 # Jupyter Notebook
 .ipynb_checkpoints
+
+system_prompt.txt
