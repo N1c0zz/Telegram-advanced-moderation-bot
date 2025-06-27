@@ -34,10 +34,6 @@ class CSVDataManager:
                 "filename": "messages.csv",
                 "headers": ["timestamp", "messaggio", "user_id", "username", "chat_id", "group_name", "approvato", "domanda", "motivo_rifiuto"]
             },
-            "admin": {
-                "filename": "admin_messages.csv", 
-                "headers": ["timestamp", "messaggio", "user_id", "username", "chat_id", "group_name"]
-            },
             "banned_users": {
                 "filename": "banned_users.csv",
                 "headers": ["user_id", "timestamp", "motivo"]
@@ -159,22 +155,6 @@ class CSVDataManager:
         success = self._append_to_csv("messages", row)
         if success and self.enabled:
             self.logger.debug(f"Messaggio salvato in CSV: User {user_id} in chat {chat_id}")
-        return success
-    
-    def save_admin_message(self, message_text: str, user_id: int, username: str, chat_id: int, group_name: str) -> bool:
-        """Salva un messaggio di un admin nel file CSV 'admin'. API identica a GoogleSheetsManager."""
-        row = [
-            datetime.now().isoformat(),
-            message_text,
-            str(user_id),
-            username,
-            str(chat_id),
-            group_name
-        ]
-        
-        success = self._append_to_csv("admin", row)
-        if success and self.enabled:
-            self.logger.debug(f"Messaggio admin salvato in CSV: User {user_id} in chat {chat_id}")
         return success
     
     def ban_user(self, user_id: int, username: str, motivo: str = "Violazione regole") -> bool:

@@ -9,6 +9,7 @@ from openai import OpenAI, OpenAIError
 
 from .config_manager import ConfigManager
 from .cache_utils import MessageAnalysisCache
+from .user_management import SystemPromptManager
 
 try:
     import langdetect
@@ -41,7 +42,8 @@ class AdvancedModerationBotLogic:
             self.logger.info("Client OpenAI inizializzato.")
         else:
             self.openai_client = None
-            self.logger.warning("OPENAI_API_KEY non trovato. L'analisi AI non sarà disponibile.")
+            self.logger.warning("OPENAI_API_KEY non trovato. L'analisi AI non sarà disponibile.")       
+        self.prompt_manager = SystemPromptManager(logger, self)
 
     @functools.lru_cache(maxsize=200)
     def contains_whitelist_word(self, text: str) -> bool:
@@ -218,6 +220,7 @@ class AdvancedModerationBotLogic:
             return False
         self.logger.debug(f"ℹ️ ANALISI LINGUA per: '{clean_text[:100]}...'")
         italian_indicators = {
+            # Parole esistenti (mantenere)
             'ciao', 'buongiorno', 'buonasera', 'buonanotte', 'salve', 'arrivederci',
             'grazie', 'prego', 'scusa', 'scusate', 'perfetto', 'bene', 'male', 'così',
             'si', 'sì', 'no', 'ok', 'okay', 'va', 'sono', 'ho', 'hai', 'ha', 'abbiamo',
@@ -238,7 +241,162 @@ class AdvancedModerationBotLogic:
             'riuscite', 'riesco', 'riesci', 'posso', 'puoi', 'può', 'possiamo', 'potete',
             'voglio', 'vuoi', 'vuole', 'vogliamo', 'volete', 'vogliono',
             'link', 'meet', 'zoom', 'teams', 'chat', 'gruppo', 'canale', 'messaggio',
-            'whatsapp', 'telegram', 'email', 'file', 'pdf', 'video', 'audio'
+            'whatsapp', 'telegram', 'email', 'file', 'pdf', 'video', 'audio',
+            
+            # NUOVE AGGIUNTE - Verbi comuni
+            'fai', 'faccio', 'fa', 'fanno', 'fare', 'fatto', 'fatta', 'fatti', 'fatte',
+            'vai', 'vado', 'va', 'vanno', 'andare', 'andato', 'andata', 'andati', 'andate',
+            'dai', 'do', 'da', 'danno', 'dare', 'dato', 'data', 'dati', 'date',
+            'stai', 'sto', 'sta', 'stanno', 'stare', 'stato', 'stata', 'stati', 'state',
+            'sai', 'so', 'sa', 'sanno', 'sapere', 'saputo', 'saputa', 'saputi', 'sapute',
+            'entri', 'entro', 'entra', 'entrano', 'entrare', 'entrato', 'entrata', 'entrati', 'entrate',
+            'esci', 'esco', 'esce', 'escono', 'uscire', 'uscito', 'uscita', 'usciti', 'uscite',
+            'vieni', 'vengo', 'viene', 'vengono', 'venire', 'venuto', 'venuta', 'venuti', 'venute',
+            'prendi', 'prendo', 'prende', 'prendono', 'prendere', 'preso', 'presa', 'presi', 'prese',
+            'metti', 'metto', 'mette', 'mettono', 'mettere', 'messo', 'messa', 'messi', 'messe',
+            'dici', 'dico', 'dice', 'dicono', 'dire', 'detto', 'detta', 'detti', 'dette',
+            'vedi', 'vedo', 'vede', 'vedono', 'vedere', 'visto', 'vista', 'visti', 'viste',
+            'senti', 'sento', 'sente', 'sentono', 'sentire', 'sentito', 'sentita', 'sentiti', 'sentite',
+            'parti', 'parto', 'parte', 'partono', 'partire', 'partito', 'partita', 'partiti', 'partite',
+            'torni', 'torno', 'torna', 'tornano', 'tornare', 'tornato', 'tornata', 'tornati', 'tornate',
+            'riesci', 'riesco', 'riesce', 'riescono', 'riuscire', 'riuscito', 'riuscita', 'riusciti', 'riuscite',
+            'capisci', 'capisco', 'capisce', 'capiscono', 'capire', 'capito', 'capita', 'capiti', 'capite',
+            'scrivi', 'scrivo', 'scrive', 'scrivono', 'scrivere', 'scritto', 'scritta', 'scritti', 'scritte',
+            'leggi', 'leggo', 'legge', 'leggono', 'leggere', 'letto', 'letta', 'letti', 'lette',
+            'lavori', 'lavoro', 'lavora', 'lavorano', 'lavorare', 'lavorato', 'lavorata', 'lavorati', 'lavorate',
+            'studi', 'studio', 'studia', 'studiano', 'studiare', 'studiato', 'studiata', 'studiati', 'studiate',
+            'giochi', 'gioco', 'gioca', 'giocano', 'giocare', 'giocato', 'giocata', 'giocati', 'giocate',
+            'mangi', 'mangio', 'mangia', 'mangiano', 'mangiare', 'mangiato', 'mangiata', 'mangiati', 'mangiate',
+            'bevi', 'bevo', 'beve', 'bevono', 'bere', 'bevuto', 'bevuta', 'bevuti', 'bevute',
+            'dormi', 'dormo', 'dorme', 'dormono', 'dormire', 'dormito', 'dormita', 'dormiti', 'dormite',
+            'svegli', 'sveglio', 'sveglia', 'svegliano', 'svegliare', 'svegliato', 'svegliata', 'svegliati', 'svegliate',
+            'chiami', 'chiamo', 'chiama', 'chiamano', 'chiamare', 'chiamato', 'chiamata', 'chiamati', 'chiamate',
+            'cerchi', 'cerco', 'cerca', 'cercano', 'cercare', 'cercato', 'cercata', 'cercati', 'cercate',
+            'trovi', 'trovo', 'trova', 'trovano', 'trovare', 'trovato', 'trovata', 'trovati', 'trovate',
+            'perdi', 'perdo', 'perde', 'perdono', 'perdere', 'perso', 'persa', 'persi', 'perse',
+            'vinci', 'vinco', 'vince', 'vincono', 'vincere', 'vinto', 'vinta', 'vinti', 'vinte',
+            'compri', 'compro', 'compra', 'comprano', 'comprare', 'comprato', 'comprata', 'comprati', 'comprate',
+            'vendi', 'vendo', 'vende', 'vendono', 'vendere', 'venduto', 'venduta', 'venduti', 'vendute',
+            'paghi', 'pago', 'paga', 'pagano', 'pagare', 'pagato', 'pagata', 'pagati', 'pagate',
+            'spendi', 'spendo', 'spende', 'spendono', 'spendere', 'speso', 'spesa', 'spesi', 'spese',
+            'guadagni', 'guadagno', 'guadagna', 'guadagnano', 'guadagnare', 'guadagnato', 'guadagnata', 'guadagnati', 'guadagnate',
+            
+            # Parole di collegamento e particelle
+            'della', 'dello', 'delle', 'degli', 'nel', 'nella', 'nei', 'nelle', 'sul', 'sulla', 'sui', 'sulle',
+            'dal', 'dalla', 'dai', 'dalle', 'al', 'alla', 'agli', 'alle', 'col', 'colla', 'colle', 'coi',
+            'di', 'da', 'in', 'su', 'tra', 'fra', 'dentro', 'fuori', 'sopra', 'sotto', 'accanto', 'dietro',
+            'davanti', 'prima', 'dopo', 'durante', 'mentre', 'intanto', 'poi', 'infine', 'alla', 'fine',
+            'ci', 'vi', 'ne', 'lo', 'la', 'li', 'le', 'gli', 'mi', 'ti', 'si', 'se',
+            'uno', 'una', 'due', 'tre', 'quattro', 'cinque', 'sei', 'sette', 'otto', 'nove', 'dieci',
+            
+            # Aggettivi comuni
+            'buono', 'buona', 'buoni', 'buone', 'cattivo', 'cattiva', 'cattivi', 'cattive',
+            'grande', 'grandi', 'piccolo', 'piccola', 'piccoli', 'piccole',
+            'nuovo', 'nuova', 'nuovi', 'nuove', 'vecchio', 'vecchia', 'vecchi', 'vecchie',
+            'giovane', 'giovani', 'bello', 'bella', 'belli', 'belle', 'brutto', 'brutta', 'brutti', 'brutte',
+            'facile', 'facili', 'difficile', 'difficili', 'semplice', 'semplici', 'complicato', 'complicata', 'complicati', 'complicate',
+            'veloce', 'veloci', 'lento', 'lenta', 'lenti', 'lente',
+            'alto', 'alta', 'alti', 'alte', 'basso', 'bassa', 'bassi', 'basse',
+            'lungo', 'lunga', 'lunghi', 'lunghe', 'corto', 'corta', 'corti', 'corte',
+            'largo', 'larga', 'larghi', 'larghe', 'stretto', 'stretta', 'stretti', 'strette',
+            'pieno', 'piena', 'pieni', 'piene', 'vuoto', 'vuota', 'vuoti', 'vuote',
+            'caldo', 'calda', 'caldi', 'calde', 'freddo', 'fredda', 'freddi', 'fredde',
+            'secco', 'secca', 'secchi', 'secche', 'bagnato', 'bagnata', 'bagnati', 'bagnate',
+            'pulito', 'pulita', 'puliti', 'pulite', 'sporco', 'sporca', 'sporchi', 'sporche',
+            'ricco', 'ricca', 'ricchi', 'ricche', 'povero', 'povera', 'poveri', 'povere',
+            'felice', 'felici', 'triste', 'tristi', 'allegro', 'allegra', 'allegri', 'allegre',
+            'arrabbiato', 'arrabbiata', 'arrabbiati', 'arrabbiate', 'calmo', 'calma', 'calmi', 'calme',
+            'sicuro', 'sicura', 'sicuri', 'sicure', 'incerto', 'incerta', 'incerti', 'incerte',
+            'importante', 'importanti', 'inutile', 'inutili', 'utile', 'utili',
+            'possibile', 'possibili', 'impossibile', 'impossibili',
+            'giusto', 'giusta', 'giusti', 'giuste', 'sbagliato', 'sbagliata', 'sbagliati', 'sbagliate',
+            
+            # Sostantivi comuni
+            'casa', 'case', 'famiglia', 'famiglie', 'persona', 'persone', 'gente',
+            'uomo', 'uomini', 'donna', 'donne', 'bambino', 'bambini', 'bambina', 'bambine',
+            'ragazzo', 'ragazzi', 'ragazza', 'ragazze', 'amico', 'amici', 'amica', 'amiche',
+            'lavoro', 'lavori', 'scuola', 'scuole', 'strada', 'strade', 'città', 'paese', 'paesi',
+            'tempo', 'tempi', 'anno', 'anni', 'mese', 'mesi', 'settimana', 'settimane',
+            'giorno', 'giorni', 'ora', 'ore', 'minuto', 'minuti', 'secondo', 'secondi',
+            'mondo', 'mondi', 'vita', 'vite', 'morte', 'morti', 'salute', 'malattia', 'malattie',
+            'soldi', 'denaro', 'euro', 'dollaro', 'dollari', 'prezzo', 'prezzi', 'costo', 'costi',
+            'macchina', 'macchine', 'auto', 'treno', 'treni', 'aereo', 'aerei', 'nave', 'navi',
+            'telefono', 'telefoni', 'computer', 'internet', 'sito', 'siti', 'pagina', 'pagine',
+            'libro', 'libri', 'giornale', 'giornali', 'rivista', 'riviste', 'film', 'cinema',
+            'musica', 'canzone', 'canzoni', 'sport', 'calcio', 'tennis', 'palestra', 'palestre',
+            'cibo', 'cibi', 'pranzo', 'cena', 'colazione', 'merenda', 'pizza', 'pasta',
+            'acqua', 'vino', 'vini', 'birra', 'birre', 'caffè', 'tè', 'latte',
+            'camera', 'camere', 'cucina', 'cucine', 'bagno', 'bagni', 'giardino', 'giardini',
+            'ufficio', 'uffici', 'negozio', 'negozi', 'supermercato', 'supermercati',
+            'ospedale', 'ospedali', 'medico', 'medici', 'dottore', 'dottori', 'dottoressa', 'dottoresse',
+            'problema', 'problemi', 'soluzione', 'soluzioni', 'domanda', 'domande', 'risposta', 'risposte',
+            'idea', 'idee', 'pensiero', 'pensieri', 'opinione', 'opinioni', 'consiglio', 'consigli',
+            'aiuto', 'errore', 'errori', 'sbaglio', 'sbagli', 'successo', 'successi',
+            'inizio', 'inizi', 'fine', 'fini', 'centro', 'centri', 'posto', 'posti', 'luogo', 'luoghi',
+            'modo', 'modi', 'tipo', 'tipi', 'specie', 'genere', 'generi', 'forma', 'forme',
+            
+            # Espressioni colloquiali e interiezioni
+            'basta', 'dai', 'beh', 'mah', 'boh', 'vabbè', 'vabe', 'ecco', 'eh', 'ah', 'oh',
+            'uffa', 'oddio', 'madonna', 'cristo', 'diamine', 'cavolo', 'cazzo', 'merda',
+            'figurati', 'immagina', 'pensa', 'senti', 'guarda', 'ascolta',
+            'tipo', 'cioè', 'insomma', 'praticamente', 'fondamentalmente', 'sostanzialmente',
+            'ovviamente', 'chiaramente', 'evidentemente', 'probabilmente', 'possibilmente',
+            'tranquillo', 'tranquilla', 'calmo', 'calma', 'piano', 'attento', 'attenta',
+            
+            # Risate e espressioni di divertimento
+            'ahahah', 'ahaha', 'ahahaha', 'hahaha', 'haha', 'hihi', 'hehe', 'eheh', 'ihih',
+            'lol', 'XD', 'xd', 'ahahahah', 'hehehehe', 'eheheh',
+            
+            # Giorni, mesi, stagioni
+            'lunedì', 'martedì', 'mercoledì', 'giovedì', 'venerdì', 'sabato', 'domenica',
+            'gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno',
+            'luglio', 'agosto', 'settembre', 'ottobre', 'novembre', 'dicembre',
+            'primavera', 'estate', 'autunno', 'inverno',
+            'mattina', 'mattino', 'pomeriggio', 'sera', 'notte', 'mezzogiorno', 'mezzanotte',
+            
+            # Termini universitari specifici
+            'università', 'uni', 'ateneo', 'campus', 'facoltà', 'dipartimento', 'cattedra',
+            'corso', 'corsi', 'materia', 'materie', 'disciplina', 'discipline',
+            'esame', 'esami', 'prova', 'prove', 'test', 'verifica', 'verifiche',
+            'voto', 'voti', 'valutazione', 'valutazioni', 'giudizio', 'giudizi',
+            'crediti', 'cfu', 'ects', 'ore', 'frequenza', 'obbligo', 'obblighi',
+            'laurea', 'lauree', 'triennale', 'magistrale', 'specialistica', 'dottorato',
+            'tesi', 'tesina', 'tesine', 'relazione', 'relazioni', 'elaborato', 'elaborati',
+            'professore', 'professori', 'prof', 'docente', 'docenti', 'ricercatore', 'ricercatori',
+            'assistente', 'assistenti', 'tutor', 'relatore', 'relatori', 'correlatore', 'correlatori',
+            'studente', 'studenti', 'studentessa', 'studentesse', 'matricola', 'matricole',
+            'iscrizione', 'iscrizioni', 'immatricolazione', 'immatricolazioni',
+            'sessione', 'sessioni', 'appello', 'appelli', 'prenotazione', 'prenotazioni',
+            'aula', 'aule', 'biblioteca', 'biblioteche', 'laboratorio', 'laboratori',
+            'lezione', 'lezioni', 'seminario', 'seminari', 'conferenza', 'conferenze',
+            'slide', 'slides', 'dispensa', 'dispense', 'appunti', 'materiale', 'materiali',
+            'paniere', 'panieri', 'questionario', 'questionari', 'quiz', 'domanda', 'domande',
+            'risposta', 'risposte', 'soluzione', 'soluzioni', 'spiegazione', 'spiegazioni',
+            'riassunto', 'riassunti', 'schema', 'schemi', 'mappa', 'mappe',
+            'studio', 'studi', 'preparazione', 'preparazioni', 'ripasso', 'ripassi',
+            'gruppo', 'gruppi', 'squadra', 'squadre', 'team', 'progetto', 'progetti',
+            'ricerca', 'ricerche', 'analisi', 'report', 'presentazione', 'presentazioni',
+            'stage', 'tirocinio', 'tirocini', 'pratica', 'pratiche', 'esperienza', 'esperienze',
+            'borsa', 'borse', 'erasmus', 'scambio', 'scambi', 'estero',
+            'mensa', 'mense', 'bar', 'caffetteria', 'caffetterie', 'segreteria', 'segreterie',
+            'ufficio', 'uffici', 'sportello', 'sportelli', 'servizio', 'servizi',
+            'certificato', 'certificati', 'diploma', 'diplomi', 'pergamena', 'pergamene',
+            'calendario', 'calendari', 'orario', 'orari', 'programma', 'programmi',
+            'piano', 'piani', 'curriculum', 'percorso', 'percorsi', 'indirizzo', 'indirizzi',
+            
+            # Tecnologia e digital
+            'computer', 'pc', 'laptop', 'tablet', 'smartphone', 'cellulare', 'telefono',
+            'internet', 'rete', 'reti', 'wifi', 'connessione', 'connessioni',
+            'sito', 'siti', 'website', 'pagina', 'pagine', 'link', 'collegamenti',
+            'email', 'mail', 'messaggio', 'messaggi', 'chat', 'whatsapp', 'telegram',
+            'facebook', 'instagram', 'twitter', 'youtube', 'google', 'zoom', 'teams',
+            'file', 'files', 'documento', 'documenti', 'pdf', 'word', 'excel', 'powerpoint',
+            'foto', 'fotografia', 'fotografie', 'immagine', 'immagini', 'video', 'audio',
+            'app', 'applicazione', 'applicazioni', 'software', 'programma', 'programmi',
+            'sistema', 'sistemi', 'piattaforma', 'piattaforme', 'servizio', 'servizi',
+            'account', 'profilo', 'profili', 'utente', 'utenti', 'password', 'accesso',
+            'download', 'upload', 'scarica', 'scaricamento', 'caricamento',
+            'online', 'offline', 'digitale', 'digitali', 'virtuale', 'virtuali'
         }
         italian_patterns = [
             r'\w+mente', r'\w+zione', r'\w+zioni', r'\w+aggio',
@@ -321,6 +479,16 @@ class AdvancedModerationBotLogic:
         self.logger.debug(f"✅ Lingua CONSENTITA (default, nessuna regola di blocco attivata) per: '{clean_text[:100]}...'")
         return False
 
+    def update_system_prompt(self, new_prompt: str) -> bool:
+        """Aggiorna il system prompt in runtime."""
+        try:
+            if hasattr(self, 'prompt_manager') and self.prompt_manager:
+                return self.prompt_manager.update_prompt(new_prompt)
+            return False
+        except Exception as e:
+            self.logger.error(f"Errore aggiornamento prompt: {e}")
+            return False
+
     def analyze_with_openai(self, message_text: str) -> Tuple[bool, bool, bool]:
         if not self.openai_client:
             self.logger.warning("OpenAI client non disponibile. Analisi AI saltata.")
@@ -347,157 +515,7 @@ class AdvancedModerationBotLogic:
             return actual_tuple_to_return
 
         self.stats['openai_requests'] += 1
-        system_prompt = (
-            "Sei un moderatore esperto di un gruppo Telegram universitario italiano. Analizza ogni messaggio con attenzione e rispondi SOLO con questo formato:\n"
-            "INAPPROPRIATO: SI/NO\n"
-            "DOMANDA: SI/NO\n"
-            "LINGUA: CONSENTITA/NON CONSENTITA\n\n"
-            "⚠️ PRIORITÀ ASSOLUTA: EVITARE FALSI POSITIVI! CONSIDERA APPROPRIATO QUALSIASI MESSAGGIO CHE NON È CHIARAMENTE PROBLEMATICO.\n\n"
-            "REGOLE PER ALFABETI NON LATINI:\n"
-            "❌ Qualsiasi messaggio che contiene prevalentemente testo in cirillico o altri alfabeti non latini deve essere marcato come LINGUA: NON CONSENTITA.\n"
-            "❌ Messaggi con @username seguiti da testo in cirillico sono sempre da considerare INAPPROPRIATO: SI\n"
-            "❌ Messaggi con emoji + testo in cirillico sono sempre da considerare INAPPROPRIATO: SI\n"
-            "❌ Annunci pubblicitari in qualsiasi lingua diversa dall'italiano sono sempre INAPPROPRIATO: SI\n\n"
-            "PROCESSO DI ANALISI (da seguire in ordine):\n"
-            "1. Verifica se il messaggio è completamente in lingua straniera\n"
-            "2. Verifica se contiene insulti gravi diretti ad altri utenti\n"
-            "3. Verifica se contiene offerte commerciali ESPLICITE con menzione di pagamenti\n"
-            "4. Verifica se contiene promozioni di investimenti, trading o criptovalute\n"
-            "5. **NUOVO**: Verifica se contiene link a canali esterni per vendita/offerta materiale didattico\n"
-            "6. Verifica se il messaggio è una DOMANDA (con o senza punto interrogativo)\n"
-            "7. Se hai dubbi, considera il messaggio APPROPRIATO\n\n"
-            "DETTAGLIO DEI CRITERI:\n\n"
-            "1️⃣ LINGUA (analizza per prima cosa):\n"
-            f"Lingue consentite (codici ISO 639-1): {self.allowed_languages}\n"
-            "❌ NON CONSENTITA: SOLO messaggi INTERAMENTE in lingua straniera (non tra quelle consentite) senza italiano\n"
-            "    • Esempio non consentito (se solo 'it' è consentito): Hello everyone how are you today\n"
-            "✅ CONSENTITA: Tutto il resto, incluso:\n"
-            "    • Messaggi in italiano con alcune parole straniere\n"
-            "    • Messaggi che citano o discutono lingue straniere\n"
-            "    • Messaggi che contengono termini tecnici in inglese\n"
-            "    • Messaggi con errori grammaticali o sintattici\n\n"
-            "2️⃣ INAPPROPRIATO (solo questi casi specifici sono inappropriati):\n"
-            "❌ Vendita ESPLICITA di materiale didattico con CHIARA menzione di denaro\n"
-            "    • Vendo panieri a 20€, Offro appunti a pagamento, Materiale disponibile a 15€\n"
-            "❌ Transazioni commerciali con termini ESPLICITI come:\n"
-            "    • prezzo, costo, euro, €, pagamento, acquistare, vendere, comprare, soldi\n"
-            "❌ Inviti a contattare privatamente SOLO SE accompagnati da termini commerciali:\n"
-            "    • Scrivetemi in privato per acquistare, Contattatemi per prezzi\n"
-            "❌ **NUOVO CRITICO**: Link a canali esterni Telegram per vendita/offerta materiale didattico:\n"
-            "    • Qualsiasi messaggio che contiene link t.me/canale + offerta di panieri/riassunti/materiale\n"
-            "    • Messaggi che promuovono 'canali ufficiali' per vendita materiale didattico\n"
-            "    • Inviti a iscriversi a canali esterni per ottenere materiale didattico\n"
-            "    • Esempi: 'Iscrivetevi al canale t.me/panieri', 'Materiale disponibile su t.me/riassunti'\n"
-            "    • 'Affidatevi all'unico canale preposto alla vendita di panieri'\n"
-            "❌ Insulti pesanti diretti ad altri utenti:\n"
-            "    • Offese personali gravi, linguaggio d'odio, minacce\n"
-            "❌ Promozioni di investimenti o trading:\n"
-            "    • Messaggi che promuovono guadagni facili attraverso trading o investimenti\n"
-            "    • Messaggi che promuovono esperti di trading/investimenti da contattare\n"
-            "    • Promozioni di servizi di consulenza per investimenti o trading\n"
-            "    • Offerte di guadagno attraverso criptovalute o forex\n"
-            "    • Messaggi che condividono link a gruppi o bot per investimenti\n\n"
-            "ATTENZIONE SPAM MASCHERATO DI PANIERI (SEMPRE INAPPROPRIATO):\n"
-            "❌ Qualsiasi messaggio che invita al contatto privato per panieri/materiale È SEMPRE INAPPROPRIATO, anche senza menzione di prezzo:\n"
-            "    • Ciao, chi cerca panieri aggiornati mi scriva\n"
-            "    • Ho materiale completo, contattatemi\n" 
-            "    • Panieri 2024 disponibili, interessati in privato\n"
-            "    • Chi vuole i panieri mi contatti\n"
-            "    • Ho tutto il materiale, scrivetemi\n"
-            "    • Panieri completi, contattatemi per info\n"
-            "❌ REGOLA: Se qualcuno offre panieri/materiale E chiede di essere contattato privatamente = INAPPROPRIATO: SI\n"
-            "❌ Anche frasi come 'mi scriva', 'contattatemi', 'interessati in privato' sono SEMPRE sospette se legate a panieri\n\n"
-            "❌ **NUOVA REGOLA CRITICA - LINK A CANALI ESTERNI**:\n"
-            "❌ Qualsiasi messaggio che contiene link a canali Telegram esterni (t.me/*, telegram.me/*) combinato con:\n"
-            "    • Offerta di materiale didattico (panieri, riassunti, appunti, slides, etc.)\n"
-            "    • Inviti a iscriversi per ottenere materiale\n"
-            "    • Promozione di 'canali ufficiali' per materiale\n"
-            "    • È SEMPRE INAPPROPRIATO: SI, anche se non menziona prezzi esplicitamente\n"
-            "❌ Esempi SEMPRE inappropriati:\n"
-            "    • 'Iscrivetevi al canale https://t.me/panieri per materiale aggiornato'\n"
-            "    • 'Affidatevi all'unico canale ufficiale preposto alla vendita di panieri t.me/riassunti'\n"
-            "    • 'Qui sotto il link del canale dove iscriversi se volete panieri https://t.me/materiale'\n"
-            "    • Qualsiasi variazione che combina link esterni + materiale didattico\n\n"
-            "3️⃣ CASI SEMPRE APPROPRIATI (non marcare mai come inappropriati):\n"
-            "✅ Richieste di materiale didattico tra studenti:\n"
-            "    • Qualcuno ha i panieri di questo esame?, Avete gli appunti per Diritto Privato?\n"
-            "✅ Richieste di aggiunta a gruppi di studio o scambio numeri per gruppi:\n"
-            "    • Mandatemi i vostri numeri per il gruppo WhatsApp, Posso entrare nel gruppo di studio?\n"
-            "✅ Scambio di contatti per GRUPPI DI STUDIO (mai marcare come inappropriato):\n"
-            "    • Scrivetemi in privato per entrare nel gruppo, Vi aggiungo al gruppo WhatsApp\n"
-            "✅ Discussioni accademiche legittime su economia, finanza o criptovalute\n"
-            "✅ Lamentele sull'università o sui servizi didattici\n"
-            "✅ Domande su esami, procedure burocratiche, certificati, date\n"
-            "✅ Messaggi brevi, emoji, numeri di telefono, indirizzi email\n\n"
-            "✅ Richieste di compilazione questionari o partecipazione a ricerche accademiche:\n"
-            "    • Studenti che cercano partecipanti per tesi, ricerche o progetti universitari\n"
-            "    • Link a Google Forms, SurveyMonkey, o altre piattaforme di sondaggi per scopi didattici\n"
-            "    • Richieste di aiuto per raccolta dati o partecipazione a esperimenti accademici\n"
-            "    • Link relativi a contenuti didattici o universitari come progetti di ricerca legittimi\n\n"
-            "✅ Richieste legittime di panieri che NON sono offerte di vendita:\n"
-            "    • Ciao a tutti, qualcuno ha i panieri aggiornati di diritto privato?\n"
-            "    • Cerco i panieri aggiornati, qualcuno può aiutarmi?\n\n"
-            "\nREGOLE SPECIALI PER LINK:\n"
-            "✅ Link a gruppi WhatsApp sono SEMPRE appropriati se:\n"
-            "    • Non contengono menzione esplicita di denaro o pagamenti\n"
-            "    • Non promuovono vendita di materiale didattico\n"
-            "    • Non contengono termini commerciali (prezzo, costo, euro, €, pagamento)\n"
-            "❌ Link a canali Telegram esterni (t.me/*, telegram.me/*) sono INAPPROPRIATI se:\n"
-            "    • Combinati con offerta di materiale didattico\n"
-            "    • Presentati come 'canali ufficiali' per materiale\n"
-            "    • Contengono inviti a iscriversi per ottenere panieri/riassunti/materiale\n"
-            "\n⚠️ Esempi di link SEMPRE APPROPRIATI:\n"
-            "    • https://chat.whatsapp.com/Ab12CdEfGhIj (semplice link senza testo aggiuntivo)\n"
-            "    • Ecco il link: https://chat.whatsapp.com/Ab12CdEfGhIj\n"
-            "⚠️ Esempi di link SEMPRE INAPPROPRIATI:\n"
-            "    • https://t.me/panieri + qualsiasi menzione di materiale didattico\n"
-            "    • t.me/riassunti + invito a iscriversi per materiale\n\n"
-            "ESEMPI DI MESSAGGI CHIARAMENTE INAPPROPRIATI (marca SI):\n"
-            "- Vendo panieri aggiornati e materiale didattico a 30€, contattatemi in privato\n"
-            "- Offro aiuto tesi a pagamento, scrivetemi su WhatsApp 123456789\n"
-            "- Entra nella community! @panieriunipegasomercatorum - materiale a soli 15€\n"
-            "- Ciao a tutti! Ho scoperto un sistema per guadagnare con il trading. Contattate @trader123 per info\n"
-            "- Ciao a tutti😊 Se cercate panieri aggiornati e corretti con anche le risposte inedite di triennali e magistrali\n"
-            "- **NUOVO**: Affidatevi all'unico canale ufficiale preposto alla vendita di panieri https://t.me/panieri\n"
-            "- **NUOVO**: Qui sotto il link del canale dove iscriversi se volete panieri https://t.me/materiale\n\n"
-            "ESEMPI DI MESSAGGI TRUFFA CRYPTO/TRADING (marca SI):\n"
-            "- Ho trovato qualcuno di cui mi fido per fare trading di criptovalute. Contattala direttamente\n"
-            "- Grazie a @expert_trader ho aumentato i miei guadagni del 200%, contattatelo\n\n"
-            "ESEMPI DI MESSAGGI DI VENDITA DI PANIERI MASCHERATI (marca SI):\n"
-            "- Ciao a tutti😊 Se cercate panieri aggiornati e corretti contattarmi\n"
-            "- Ciao ragazzi, chi cerca panieri completi 2025 mi scriva\n\n"
-            "ESEMPI DI MESSAGGI AMBIGUI MA APPROPRIATI (marca NO):\n"
-            "- Ciao a tutti! Sto lavorando alla mia tesi e cerco partecipanti per un questionario. Ecco il link: https://forms.gle...\n"
-            "- Salve, sono uno studente di economia e sto conducendo una ricerca, qualcuno può compilare questo form? https://forms.gle...\n"
-            "- Qualcuno può passarmi i panieri aggiornati?\n"
-            "- Chi ha i panieri di questo esame? Ne avrei bisogno urgentemente\n"
-            "- Per favore mandate i numeri così vi aggiungo al gruppo WhatsApp\n\n"
-            "CONTESTO UNIVERSITÀ TELEMATICHE:\n"
-            "I panieri sono raccolte legittime di domande d'esame. È normale che gli studenti se li scambino gratuitamente. Solo la VENDITA di panieri o la promozione di canali esterni per materiale è inappropriata.\n\n"
-            "IMPORTANTE: Se un messaggio non è CHIARAMENTE inappropriato secondo i criteri sopra, marcalo come APPROPRIATO. In caso di dubbio, è sempre meglio permettere un messaggio potenzialmente inappropriato piuttosto che bloccare un messaggio legittimo.\n\n"
-            "ISTRUZIONI SPECIFICHE PER RICONOSCERE DOMANDE:\n"
-            "Una domanda è un messaggio che richiede informazioni, chiarimenti, aiuto o conferma da altri utenti. Marca come DOMANDA: SI se:\n\n"
-            "✅ CRITERI PER RICONOSCERE UNA DOMANDA:\n"
-            "• Il messaggio contiene un punto interrogativo ?\n"
-            "• Il messaggio inizia con parole interrogative: chi, cosa, come, dove, quando, perché, quale, quanto\n"
-            "• Il messaggio chiede informazioni sulla piattaforma, accesso, corsi, esami, costi\n"
-            "• Il messaggio richiede conferma con strutture come: 'qualcuno sa', 'c'è qualcuno', 'riuscite a', 'avete'\n"
-            "• Il messaggio esprime una richiesta di aiuto o materiale\n"
-            "• Il messaggio chiede opinioni o esperienze\n"
-            "• Il messaggio usa il condizionale per chiedere informazioni: 'sapreste', 'potreste'\n"
-            "• Il messaggio usa formule dirette come: 'mi serve sapere', 'cerco informazioni'\n\n"
-            "ESEMPI DI DOMANDE DA RICONOSCERE CORRETTAMENTE (marca DOMANDA: SI):\n"
-            "- oggi riuscite ad entrare in piattaforma pegaso?\n"
-            "- Buongiorno quanto costa all inclusive se fatta al terzo anno?\n"
-            "- C'è una rappresentante per lm77?\n"
-            "- Qualcuno ha i panieri di storia medievale?\n"
-            "- Sapete quando escono i risultati dell'esame di ieri?\n\n"
-            "NON SONO DOMANDE (marca DOMANDA: NO):\n"
-            "- Buongiorno a tutti\n"
-            "- Ho superato l'esame finalmente!\n"
-            "- Grazie mille per l'aiuto\n\n"
-            "IMPORTANTE: Una domanda può essere formulata anche senza punto interrogativo, valuta il contesto e l'intento. Ogni richiesta di informazioni o aiuto è una domanda, anche se formulata come affermazione."
-        )
+        system_prompt = self.prompt_manager.get_current_prompt()
         try:
             response = self.openai_client.chat.completions.create(
                 model="gpt-3.5-turbo",

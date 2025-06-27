@@ -55,17 +55,6 @@
                     </div>
                     <div class="col-md-3">
                         <div class="d-flex align-items-center justify-content-center">
-                            <div class="display-6 text-success me-3">
-                                <i class="bi bi-person-check"></i>
-                            </div>
-                            <div>
-                                <h4 class="mb-0">{{ "{:,}".format(csv_stats.admin or 0) }}</h4>
-                                <p class="text-muted mb-0">Messaggi Admin</p>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-md-3">
-                        <div class="d-flex align-items-center justify-content-center">
                             <div class="display-6 text-danger me-3">
                                 <i class="bi bi-person-x"></i>
                             </div>
@@ -148,32 +137,6 @@
                                             <i class="bi bi-download"></i>
                                         </a>
                                         <button class="btn btn-outline-info" onclick="previewCSV('messages')" title="Anteprima">
-                                            <i class="bi bi-eye"></i>
-                                        </button>
-                                    </div>
-                                </td>
-                            </tr>
-                            {% set admin_size = ((csv_stats.admin or 0) * 0.3)|round(1) %}
-                            <tr>
-                                <td>
-                                    <div class="d-flex align-items-center">
-                                        <i class="bi bi-file-earmark-check text-success me-2 fs-5"></i>
-                                        <strong>admin_messages.csv</strong>
-                                    </div>
-                                </td>
-                                <td>Messaggi degli amministratori</td>
-                                <td>
-                                    <span class="badge bg-success">{{ "{:,}".format(csv_stats.admin or 0) }}</span>
-                                </td>
-                                <td>
-                                    <span class="text-muted">~{{ admin_size }} MB</span>
-                                </td>
-                                <td class="text-center">
-                                    <div class="btn-group btn-group-sm">
-                                        <a href="{{ url_for('download_csv', table_name='admin') }}" class="btn btn-outline-success" title="Download">
-                                            <i class="bi bi-download"></i>
-                                        </a>
-                                        <button class="btn btn-outline-info" onclick="previewCSV('admin')" title="Anteprima">
                                             <i class="bi bi-eye"></i>
                                         </button>
                                     </div>
@@ -356,7 +319,6 @@
 {
     "csv_stats": {
         "messages": {{ csv_stats.messages|default(0)|int }},
-        "admin": {{ csv_stats.admin|default(0)|int }},
         "banned_users": {{ csv_stats.banned_users|default(0)|int }},
         "unban_history": {{ csv_stats.unban_history|default(0)|int }},
         "csv_disabled": {{ csv_stats.csv_disabled|default(false)|tojson }}
@@ -400,7 +362,7 @@ function createFullBackup() {
 function downloadAllCSV() {
     showProgressModal('Download di tutti i CSV in corso...');
     
-    const tables = ['messages', 'admin', 'banned_users', 'unban_history'];
+    const tables = ['messages', 'banned_users', 'unban_history'];
     let completed = 0;
     
     tables.forEach((table, index) => {

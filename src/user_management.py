@@ -598,8 +598,9 @@ class SystemPromptManager:
                 f.write(new_prompt.strip())
             
             # Aggiorna il prompt nella logica di moderazione
-            # TODO: Implementare metodo per aggiornare il prompt in runtime
-            # self.moderation_logic.update_system_prompt(new_prompt)
+            if self.moderation_logic and hasattr(self.moderation_logic, 'prompt_manager'):
+            # Il prompt viene aggiornato automaticamente al prossimo utilizzo
+                pass
             
             self.logger.info("System prompt aggiornato con successo")
             return True

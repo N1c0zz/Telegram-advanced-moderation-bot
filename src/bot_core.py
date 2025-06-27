@@ -607,8 +607,11 @@ class TelegramModerationBot:
         username = user.username or f"UserID_{user.id}"
         chat_id = chat.id
         group_name = chat.title or f"ChatPrivata_{chat_id}"
-        message_text = message.text
+        message_text = message.text or message.caption or ""
         message_id = message.message_id
+
+        if not message_text.strip():
+            return # Skip messaggi senza testo/caption
 
         self.logger.info(f"🔍 DEBUG: Messaggio ricevuto da {username}: '{message_text}'")
         self.logger.info(f"🔍 DEBUG: Lunghezza messaggio: {len(message_text)} caratteri")
@@ -625,7 +628,6 @@ class TelegramModerationBot:
         exempt_users_list = self.config_manager.get('exempt_users', [])
         if user_id in exempt_users_list or username in exempt_users_list:
             self.logger.info(f"Messaggio {'modificato ' if is_edited else ''}da utente esente {username} ({user_id}) in {group_name} ({chat_id}).")
-            self.csv_manager.save_admin_message(message_text, user_id, username, chat_id, group_name)
             return
 
         # 2. UTENTI GIÀ BANNATI - CONTROLLO CRITICO DI SICUREZZA
@@ -1434,12 +1436,12 @@ class TelegramModerationBot:
 
         # Handlers per messaggi
         self.application.add_handler(MessageHandler(
-            filters.TEXT & ~filters.COMMAND & filters.UpdateType.MESSAGE, 
+            (filters.TEXT | filters.PHOTO | filters.CAPTION) & ~filters.COMMAND & filters.UpdateType.MESSAGE,
             self.filter_new_messages
         ))
         self.application.add_handler(MessageHandler(
-            filters.TEXT & ~filters.COMMAND & filters.UpdateType.EDITED_MESSAGE, 
-            self.filter_edited_messages
+            (filters.TEXT | filters.PHOTO | filters.CAPTION) & ~filters.COMMAND & filters.UpdateType.MESSAGE,
+            self.filter_new_messages
         ))
 
         # Handlers per comandi admin

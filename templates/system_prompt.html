@@ -312,30 +312,43 @@ function runAITest() {
         return;
     }
     
+    const promptText = document.getElementById('prompt-editor').value.trim();
+    
+    if (!promptText) {
+        showAlert('Il prompt non può essere vuoto', 'warning');
+        return;
+    }
+    
     const button = document.getElementById('test-ai-btn');
     const originalText = showLoading(button);
     
-    // Simulazione locale del test AI
-    setTimeout(() => {
+    // CHIAMATA API REALE
+    fetch('/api/prompt/test', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            message: testMessage,
+            prompt: promptText
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
         hideLoading(button, originalText);
         
-        // Logica di test locale semplificata
-        const mockResponse = {
-            inappropriate: testMessage.toLowerCase().includes('vendo') || 
-                          testMessage.toLowerCase().includes('spam') ||
-                          testMessage.toLowerCase().includes('panieri a pagamento'),
-            question: testMessage.includes('?') || 
-                     testMessage.toLowerCase().includes('come') ||
-                     testMessage.toLowerCase().includes('quando') ||
-                     testMessage.toLowerCase().includes('dove'),
-            language: detectLanguage(testMessage),
-            confidence: (Math.random() * 0.3 + 0.7).toFixed(2),
-            test_mode: 'locale'
-        };
-        
-        displayTestResults(mockResponse, testMessage);
-        showAlert('Test eseguito in modalità locale', 'info');
-    }, 1500);
+        if (data.success) {
+            displayTestResults(data.result, testMessage);
+            showAlert('Test eseguito con successo!', 'success');
+        } else {
+            showAlert(`Errore durante il test: ${data.message}`, 'danger');
+        }
+    })
+    .catch(error => {
+        hideLoading(button, originalText);
+        console.error('Errore:', error);
+        showAlert('Errore di comunicazione con il server', 'danger');
+    });
 }
 
 // Funzione helper per detectare lingua (semplificata)
