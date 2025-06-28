@@ -593,7 +593,7 @@ class TelegramModerationBot:
     async def _handle_message_moderation(self, update: Update, context: ContextTypes.DEFAULT_TYPE, is_edited: bool = False):
         """Logica di moderazione centrale per messaggi nuovi o modificati."""
         message = update.effective_message
-        if not message or not message.text or not message.text.strip():
+        if not message:
             return
 
         self.bot_stats['total_messages_processed'] += 1
