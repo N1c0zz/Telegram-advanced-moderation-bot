@@ -341,11 +341,15 @@
                                     {% endif %}
                                 </td>
                                 <td class="col-actions text-center">
-                                    <button class="btn btn-outline-danger btn-sm" 
-                                            onclick="banUserFromMessage('{{ message.user_id }}', '{{ message.username or message.user_id }}')" 
-                                            title="Banna utente">
-                                        <i class="bi bi-person-x"></i>
-                                    </button>
+                                    {% if is_user_banned_helper(message.user_id) %}
+                                        <span class="badge bg-danger badge-compact">Bannato</span>
+                                    {% else %}
+                                        <button class="btn btn-outline-danger btn-sm" 
+                                                onclick="banUserFromMessage('{{ message.user_id }}', '{{ message.username or message.user_id }}')" 
+                                                title="Banna utente">
+                                            <i class="bi bi-person-x"></i>
+                                        </button>
+                                    {% endif %}
                                 </td>
                             </tr>
                             {% endfor %}

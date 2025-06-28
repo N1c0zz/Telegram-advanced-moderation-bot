@@ -1434,16 +1434,18 @@ class TelegramModerationBot:
 
         self.application = Application.builder().token(self.token).build()
 
-        # Handlers per messaggi
-        self.application.add_handler(MessageHandler(
-            (filters.TEXT | filters.PHOTO | filters.CAPTION) & ~filters.COMMAND & filters.UpdateType.MESSAGE,
-            self.filter_new_messages
-        ))
+        # Handlers per messaggi nuovi
         self.application.add_handler(MessageHandler(
             (filters.TEXT | filters.PHOTO | filters.CAPTION) & ~filters.COMMAND & filters.UpdateType.MESSAGE,
             self.filter_new_messages
         ))
 
+        # Handler per messaggi editati
+        self.application.add_handler(MessageHandler(
+            (filters.TEXT | filters.PHOTO | filters.CAPTION) & ~filters.COMMAND & filters.UpdateType.EDITED_MESSAGE,
+            self.filter_edited_messages
+        ))
+        
         # Handlers per comandi admin
         self.application.add_handler(CommandHandler("stats", self.show_stats_command))
         self.application.add_handler(CommandHandler("backup", self.backup_now_command))

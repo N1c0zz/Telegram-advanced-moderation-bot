@@ -290,13 +290,12 @@
                                     </div>
                                 </td>
                                 <td class="col-actions text-center">
-                                    <!-- SOLO AZIONE BAN se non ha già causato ban -->
-                                    {% if 'ban' not in message.motivo_rifiuto.lower() %}
+                                    {% if is_user_banned_helper(message.user_id) %}
+                                        <span class="badge bg-danger badge-compact">Bannato</span>
+                                    {% else %}
                                         <button class="btn btn-outline-danger btn-sm" onclick="banUserFromDeletedMessage('{{ message.user_id }}', '{{ message.username or message.user_id }}')" title="Banna utente">
                                             <i class="bi bi-person-x"></i>
                                         </button>
-                                    {% else %}
-                                        <span class="badge bg-secondary badge-compact">Già bannato</span>
                                     {% endif %}
                                 </td>
                             </tr>

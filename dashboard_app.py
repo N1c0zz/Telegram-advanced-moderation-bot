@@ -140,6 +140,17 @@ class DashboardApp:
                 return f"{int(value):,}".replace(',', '.')
             except (ValueError, TypeError):
                 return str(value) if value is not None else '0'
+
+        @self.app.template_global()
+        def is_user_banned_helper(user_id):
+            """Funzione helper per verificare se un utente è bannato (per use nei template)."""
+            try:
+                if self.bot and self.bot.csv_manager:
+                    return self.bot.csv_manager.is_user_banned(int(user_id))
+                return False
+            except Exception as e:
+                self.logger.error(f"Errore verifica ban per user {user_id}: {e}")
+                return False
         
         @self.app.template_global()
         def formatPercentage(value, decimals=1):
