@@ -2,145 +2,165 @@ import os
 import hashlib
 from flask_login import UserMixin, LoginManager, login_user, logout_user, login_required, current_user
 from functools import wraps
-from flask import session, request, redirect, url_for, flash
+from flask import session, request, redirect, url_for, flash, current_app
 
-class User(UserMixin):
-    """Classe User per Flask-Login."""
-    
-    def __init__(self, username):
-        self.id = username
-        self.username = username
-    
-    def get_id(self):
-        return self.username
+# Import del nuovo sistema sicuro
+from .auth_security import (
+    SecureAuthManager, 
+    SecureUser, 
+    SecurityLogger, 
+    SecurityConfig,
+    SecureSession,
+    enhanced_auth_required,
+    SecurityMiddleware,
+    PasswordValidator
+)
 
 class AuthManager:
-    """Gestore dell'autenticazione semplice."""
+    """
+    Wrapper per compatibilità con il sistema esistente.
+    Usa internamente il nuovo SecureAuthManager.
+    """
     
     def __init__(self, app=None):
-        self.login_manager = LoginManager()
-        self.users = {}  # In memoria - per una versione più sicura usa un database
+        self.secure_auth = SecureAuthManager()
+        self.login_manager = self.secure_auth.login_manager
+        self.security_logger = SecurityLogger()
         
         if app:
             self.init_app(app)
     
     def init_app(self, app, config_data=None):
-        """Inizializza l'autenticazione con Flask app."""
-        self.login_manager.init_app(app)
-        self.login_manager.login_view = 'login'
-        self.login_manager.login_message = 'Per favore accedi per accedere a questa pagina.'
-        self.login_manager.login_message_category = 'info'
+        """Inizializza l'autenticazione sicura."""
         
-        # User loader callback
-        @self.login_manager.user_loader
-        def load_user(username):
-            if username in self.users:
-                return User(username)
-            return None
-        
-        # Carica utenti da config.json e/o variabili d'ambiente
-        self._load_users_from_config(config_data)
-    
-    def _load_users_from_config(self, config_data=None):
-        """Carica utenti da config.json e variabili d'ambiente."""
-        
-        # PRIORITÀ 1: Carica da config.json se disponibile
-        if config_data and 'dashboard' in config_data:
-            dashboard_config = config_data['dashboard']
+        # Configurazione sicurezza da environment o config
+        if config_data and 'security' in config_data:
+            security_config = config_data['security']
             
-            # Controlla se l'autenticazione è abilitata
-            require_auth = dashboard_config.get('require_auth', True)
-            if not require_auth:
-                # Se auth disabilitato, crea un utente guest
-                self.users['guest'] = self._hash_password('guest')
-                return
-            
-            # Carica admin_users dal config (come username/password identici)
-            admin_users = dashboard_config.get('admin_users', [])
-            for user_id in admin_users:
-                username = f"admin_{user_id}"
-                # Password = user_id convertito in stringa (puoi cambiare questa logica)
-                password = str(user_id)
-                self.users[username] = self._hash_password(password)
+            # Aggiorna configurazione sicurezza
+            SecurityConfig.SESSION_TIMEOUT_MINUTES = security_config.get('session_timeout_minutes', 30)
+            SecurityConfig.MAX_LOGIN_ATTEMPTS = security_config.get('max_login_attempts', 5)
+            SecurityConfig.ENABLE_IP_WHITELIST = security_config.get('enable_ip_whitelist', False)
+            SecurityConfig.ALLOWED_IP_RANGES = security_config.get('allowed_ip_ranges', [])
+            SecurityConfig.REQUIRE_2FA = security_config.get('require_2fa', False)
         
-        # PRIORITÀ 2: Carica da .env (override/aggiuntivi)
-        admin_user = os.getenv('DASHBOARD_USERNAME')
-        admin_pass = os.getenv('DASHBOARD_PASSWORD')
+        # Inizializza sistema sicuro
+        self.secure_auth.init_app(app)
         
-        if admin_user and admin_pass:
-            self.users[admin_user] = self._hash_password(admin_pass)
+        # Aggiungi middleware di sicurezza
+        self.security_middleware = SecurityMiddleware(app, self.secure_auth)
         
-        # PRIORITÀ 3: Utenti aggiuntivi da .env
-        additional_users = os.getenv('DASHBOARD_ADDITIONAL_USERS', '')
-        if additional_users:
-            for user_pair in additional_users.split(','):
-                if ':' in user_pair:
-                    username, password = user_pair.strip().split(':', 1)
-                    self.users[username.strip()] = self._hash_password(password.strip())
-        
-        # FALLBACK: Se nessun utente configurato, crea admin di default
-        if not self.users:
-            self.users['admin'] = self._hash_password('admin123')
-    
-    def _hash_password(self, password):
-        """Hash sicuro della password."""
-        # PRIORITÀ 1: Salt da config.json se disponibile
-        salt = getattr(self, '_config_salt', None)
-        if not salt:
-            # PRIORITÀ 2: Salt da .env
-            salt = os.getenv('DASHBOARD_SALT', 'default_salt_change_me')
-        
-        return hashlib.sha256((password + salt).encode()).hexdigest()
-    
-    def set_config_salt(self, salt):
-        """Imposta il salt dalla configurazione."""
-        self._config_salt = salt
+        self.security_logger.log_event(
+            "AUTH_SYSTEM_INITIALIZED", 
+            "Secure authentication system initialized"
+        )
     
     def verify_password(self, username, password):
-        """Verifica username e password."""
-        if username not in self.users:
-            return False
-        
-        hashed_input = self._hash_password(password)
-        return self.users[username] == hashed_input
+        """Verifica password (compatibilità)."""
+        user = self.secure_auth.users.get(username)
+        return user and user.verify_password(password)
     
     def authenticate_user(self, username, password, remember=False):
-        """Autentica un utente e crea la sessione."""
-        if self.verify_password(username, password):
-            user = User(username)
+        """Autentica utente con nuovo sistema sicuro."""
+        ip = request.remote_addr
+        
+        success, message, user = self.secure_auth.authenticate(username, password, ip)
+        
+        if success and user:
+            # Crea sessione sicura
+            self.secure_auth.secure_session.create_secure_session(username)
+            
+            # Login con Flask-Login
             login_user(user, remember=remember)
+            
             return True
+        
         return False
     
-    def add_user(self, username, password):
-        """Aggiunge un nuovo utente (per uso futuro)."""
-        self.users[username] = self._hash_password(password)
+    def add_user(self, username, password, is_admin=True):
+        """Aggiunge un nuovo utente."""
+        return self.secure_auth.create_user(username, password, is_admin)
     
     def remove_user(self, username):
         """Rimuove un utente."""
-        if username in self.users:
-            del self.users[username]
+        if username in self.secure_auth.users:
+            del self.secure_auth.users[username]
+            self.secure_auth.user_store.save_users(self.secure_auth.users)
+            
+            self.security_logger.log_event(
+                "USER_REMOVED", 
+                f"User removed",
+                user=username
+            )
             return True
         return False
     
     def get_all_users(self):
         """Restituisce lista di tutti gli username."""
-        return list(self.users.keys())
+        return list(self.secure_auth.users.keys())
+    
+    def unlock_user(self, username):
+        """Sblocca un utente."""
+        return self.secure_auth.unlock_user(username)
+    
+    def change_password(self, username, old_password, new_password):
+        """Cambia password utente."""
+        return self.secure_auth.change_password(username, old_password, new_password)
+    
+    def get_security_status(self):
+        """Ottieni stato di sicurezza."""
+        return self.secure_auth.get_security_status()
+    
+    def get_user_info(self, username):
+        """Ottieni informazioni utente."""
+        user = self.secure_auth.users.get(username)
+        if user:
+            return {
+                'username': user.username,
+                'is_admin': user.is_admin,
+                'created_at': user.created_at,
+                'last_login': user.last_login,
+                'failed_attempts': user.failed_attempts,
+                'is_locked': user.is_locked,
+                'has_2fa': bool(user.two_fa_secret)
+            }
+        return None
 
-# Decorator per proteggere route che richiedono autenticazione
+# Decorator per compatibilità (usa il nuovo sistema)
 def auth_required(f):
-    """Decorator che richiede autenticazione per accedere alla route."""
-    @wraps(f)
-    @login_required
-    def decorated_function(*args, **kwargs):
-        return f(*args, **kwargs)
-    return decorated_function
+    """Decorator per autenticazione semplice (compatibilità)."""
+    return enhanced_auth_required(admin_only=False)(f)
 
-# Funzione helper per check rapidi
+def admin_required(f):
+    """Decorator per autenticazione admin."""
+    return enhanced_auth_required(admin_only=True)(f)
+
+# Funzioni helper per compatibilità
 def is_authenticated():
     """Restituisce True se l'utente corrente è autenticato."""
-    return current_user.is_authenticated
+    return current_user.is_authenticated and session.get('logged_in', False)
 
 def get_current_username():
     """Restituisce l'username dell'utente corrente."""
-    return current_user.username if current_user.is_authenticated else None
+    if current_user.is_authenticated:
+        return current_user.username
+    return None
+
+def force_logout():
+    """Forza il logout dell'utente corrente."""
+    if current_user.is_authenticated:
+        SecurityLogger().log_event(
+            "FORCED_LOGOUT", 
+            "User forcefully logged out",
+            user=current_user.username
+        )
+    
+    logout_user()
+    session.clear()
+
+# Classe User per compatibilità
+class User(SecureUser):
+    """Classe User compatibile con il sistema esistente."""
+    
+    def get_id(self):
+        return self.username
