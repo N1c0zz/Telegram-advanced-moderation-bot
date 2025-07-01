@@ -831,6 +831,7 @@ class ConfigurationManager:
                 'start_hour': night_mode_config.get('start_hour', '23:00'),
                 'end_hour': night_mode_config.get('end_hour', '07:00'),
                 'night_mode_groups': night_mode_config.get('night_mode_groups', []),
+                'ban_groups': night_mode_config.get('ban_groups', []),  # AGGIUNGI QUESTA RIGA
                 'grace_period_seconds': night_mode_config.get('grace_period_seconds', 15)
             }
         else:
@@ -839,6 +840,7 @@ class ConfigurationManager:
                 'start_hour': '23:00',
                 'end_hour': '07:00',
                 'night_mode_groups': [],
+                'ban_groups': [],  # AGGIUNGI ANCHE QUA
                 'grace_period_seconds': 15
             }
         
@@ -886,12 +888,22 @@ class ConfigurationManager:
                 night_mode_config = config.get('night_mode', {})
                 night_mode_config.update(new_values)
                 config['night_mode'] = night_mode_config
+            
+            elif section == 'ban_groups':
+                # Gestione specifica per ban_groups
+                if 'night_mode' in new_values and isinstance(new_values['night_mode'], dict):
+                    night_mode_config = config.get('night_mode', {})
+                    # Mantieni tutte le impostazioni esistenti di night_mode e aggiorna solo ban_groups
+                    night_mode_config.update(new_values['night_mode'])
+                    config['night_mode'] = night_mode_config
+                else:
+                    return False, "Formato dati non valido per ban_groups"
                 
             elif section == 'spam_detector':
                 spam_config = config.get('spam_detector', {})
                 spam_config.update(new_values)
                 config['spam_detector'] = spam_config
-                
+
             else:
                 # Aggiornamento generico
                 config.update(new_values)
@@ -940,6 +952,17 @@ class ConfigurationManager:
                     for group_id in groups:
                         if not isinstance(group_id, int):
                             errors.append(f"ID gruppo non valido: {group_id}. Deve essere un numero intero")
+
+            elif section == 'ban_groups':
+                # Valida che ban_groups sia una lista di numeri
+                if 'night_mode' in new_values:
+                    ban_groups = new_values['night_mode'].get('ban_groups', [])
+                    if not isinstance(ban_groups, list):
+                        errors.append("ban_groups deve essere una lista")
+                    else:
+                        for group_id in ban_groups:
+                            if not isinstance(group_id, (int, str)) or (isinstance(group_id, str) and not group_id.strip()):
+                                errors.append(f"ID gruppo non valido: {group_id}")
             
             elif section == 'spam_detector':
                 threshold = new_values.get('similarity_threshold')

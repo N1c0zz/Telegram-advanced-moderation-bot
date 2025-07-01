@@ -82,6 +82,15 @@ class ConfigManager:
                 -1001355576572,
                 -1001772950682
                 ],
+                "ban_groups": [
+                    -1001413883199,
+                    -1002203654435,
+                    -1002205878265,
+                    -1002067796519,
+                    -1001575146602,
+                    -1001355576572,
+                    -1001772950682
+                ],
                 "enabled": True,
                 "grace_period_seconds": 15,
                 "allow_web_page_previews_in_night_mode": False

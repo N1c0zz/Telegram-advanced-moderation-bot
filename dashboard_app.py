@@ -651,6 +651,7 @@ class DashboardApp:
                             'start_hour': basic_config.get('night_mode', {}).get('start_hour', '23:00'),
                             'end_hour': basic_config.get('night_mode', {}).get('end_hour', '07:00'),
                             'night_mode_groups': basic_config.get('night_mode', {}).get('night_mode_groups', []),
+                            'ban_groups': basic_config.get('night_mode', {}).get('ban_groups', []),  # AGGIUNGI QUESTA
                             'grace_period_seconds': basic_config.get('night_mode', {}).get('grace_period_seconds', 15)
                         },
                         'spam_detector': {

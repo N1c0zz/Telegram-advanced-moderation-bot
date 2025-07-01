@@ -185,7 +185,7 @@ class TelegramModerationBot:
             
             # Ban fisico dai gruppi Telegram
             if self.application and self.application.bot:
-                target_groups = self.get_night_mode_groups()
+                target_groups = self.get_ban_groups()
                 results = await self._execute_multi_group_ban(self.application.bot, user_id, target_groups, reason)
                 success_count = sum(results.values())
                 
@@ -291,7 +291,7 @@ class TelegramModerationBot:
             bool: True se almeno un ban fisico è riuscito, False altrimenti
         """
         try:
-            target_groups = self.get_night_mode_groups()
+            target_groups = self.get_ban_groups()
             
             if not target_groups:
                 self.logger.warning(f"Nessun gruppo configurato per ban fisico automatico di {user_id}")
@@ -1179,6 +1179,12 @@ class TelegramModerationBot:
         await update.message.reply_text(f"🗑️ Cache AI resettata! Rimossi {cache_size_before} elementi dalla cache.")
         self.logger.info(f"Cache AI resettata da admin {user.username} ({user.id})")
 
+    def get_ban_groups(self) -> List[int]:
+        """Restituisce la lista dei gruppi da cui bannare gli utenti."""
+        ban_groups = self.config_manager.get_nested('night_mode', 'ban_groups', default=[])
+        self.logger.debug(f"Ban groups configurati: {ban_groups}")
+        return ban_groups
+
     async def manual_ban_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Comando /ban <user_id> per bannare manualmente un utente da tutti i gruppi."""
         user = update.effective_user
@@ -1214,10 +1220,10 @@ class TelegramModerationBot:
             
             status_msg = await update.message.reply_text(f"🔨 **Ban in corso per utente:** `{target_user_id}`\n📝 **Motivo:** {motivo}\n\n⏳ Rimozione da tutti i gruppi configurati...", parse_mode='Markdown')
             
-            target_groups = self.get_night_mode_groups()
+            target_groups = self.get_ban_groups()
             
             if not target_groups:
-                await status_msg.edit_text("❌ Nessun gruppo configurato per il ban. Verifica la configurazione `night_mode_groups`.")
+                await status_msg.edit_text("❌ Nessun gruppo configurato per il ban. Verifica la configurazione `ban_groups`.")
                 return
             
             # MODIFICA: Usa la logica esistente per ban logico + fisico
